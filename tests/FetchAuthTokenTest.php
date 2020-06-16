@@ -18,7 +18,7 @@
 namespace Google\Auth\Tests;
 
 use Google\Auth\Credentials\AppIdentityCredentials;
-use Google\Auth\Credentials\GCECredentials;
+use Google\Auth\Credentials\ComputeCredentials;
 use Google\Auth\Credentials\ServiceAccountCredentials;
 use Google\Auth\Credentials\ServiceAccountJwtAccessCredentials;
 use Google\Auth\Credentials\UserRefreshCredentials;
@@ -93,7 +93,7 @@ class FetchAuthTokenTest extends BaseTest
     {
         return [
             ['Google\Auth\Credentials\AppIdentityCredentials'],
-            ['Google\Auth\Credentials\GCECredentials'],
+            ['Google\Auth\Credentials\ComputeCredentials'],
             ['Google\Auth\Credentials\ServiceAccountCredentials'],
             ['Google\Auth\Credentials\ServiceAccountJwtAccessCredentials'],
             ['Google\Auth\Credentials\UserRefreshCredentials'],
@@ -118,15 +118,15 @@ class FetchAuthTokenTest extends BaseTest
         $this->assertGetLastReceivedToken($credentials);
     }
 
-    public function testGCECredentialsGetLastReceivedToken()
+    public function testComputeCredentialsGetLastReceivedToken()
     {
         $class = new \ReflectionClass(
-            'Google\Auth\Credentials\GCECredentials'
+            'Google\Auth\Credentials\ComputeCredentials'
         );
         $property = $class->getProperty('lastReceivedToken');
         $property->setAccessible(true);
 
-        $credentials = new GCECredentials();
+        $credentials = new ComputeCredentials();
         $property->setValue($credentials, [
             'access_token' => 'xyz',
             'expires_at' => strtotime('2001'),

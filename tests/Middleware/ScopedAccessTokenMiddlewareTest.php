@@ -25,7 +25,7 @@ use Prophecy\Argument;
 
 class ScopedAccessTokenMiddlewareTest extends BaseTest
 {
-    const TEST_SCOPE = 'https://www.googleapis.com/auth/cloud-taskqueue';
+    private const TEST_SCOPE = 'https://www.googleapis.com/auth/cloud-taskqueue';
 
     private $mockCacheItem;
     private $mockCache;

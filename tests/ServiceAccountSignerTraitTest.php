@@ -22,7 +22,7 @@ use PHPUnit\Framework\TestCase;
 
 class ServiceAccountSignerTraitTest extends TestCase
 {
-    const STRING_TO_SIGN = 'hello world';
+    private const STRING_TO_SIGN = 'hello world';
 
     private $signedString = [
         'ZPeNGA9xcqwMQ7OEfNdLuwgxO+rJ59mhetIZrqWncY0uv+IZN0',

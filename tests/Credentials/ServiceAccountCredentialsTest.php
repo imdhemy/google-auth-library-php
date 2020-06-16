@@ -377,7 +377,7 @@ class SACGetClientNameTest extends TestCase
     {
         $testJson = createTestJson();
         $sa = new ServiceAccountCredentials('scope/1', $testJson);
-        $this->assertEquals($testJson['client_email'], $sa->getClientName());
+        $this->assertEquals($testJson['client_email'], $sa->getClientEmail());
     }
 }
 
