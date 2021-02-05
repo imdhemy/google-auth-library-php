@@ -1,8 +1,17 @@
-# Google Auth v2.0
+Google Auth Upgrade Guide
+====================
 
-## Improvements
+1.0 to 2.0
+----------
 
-### PHP Language Features (7.1)
+In order to take advantage of the new features of PHP, Google Auth dropped
+support for PHP 7.0 and below. The minimum supported PHP version is now PHP 7.1.
+Type hints and return types for functions and methods have been added wherever
+possible.
+
+### Improvements!
+
+#### PHP Language Features (7.1)
 
 *   [Return types](https://wiki.php.net/rfc/return_types) for all functions
 *   [Scalar types](https://www.tutorialspoint.com/php7/php7_scalartype_declarations.htm) for scalar function arguments
@@ -10,7 +19,7 @@
 *   private constants
 *   mark classes as internal using `@internal `and `final`
 
-### Improved Caching {#improved-caching}
+#### Improved Caching {#improved-caching}
 
 *   Implement caching in credentials instead of as a wrapper:
 
@@ -34,7 +43,7 @@ $credentials = $auth->makeCredentials([
     *   Automatic retry for token expiration API exception
 
 
-### Improved HTTP handling {#improved-http-handling}
+#### Improved HTTP handling {#improved-http-handling}
 
 *   Provides an abstraction from Guzzle HTTP Client
     *   Using the composer "[replace](https://stackoverflow.com/questions/18882201/how-does-the-replace-property-work-with-composer)" keyword, users can ignore sub-dependencies such as Guzzle in favor of a separate HTTP library
@@ -43,9 +52,10 @@ $credentials = $auth->makeCredentials([
 *   See [Google HTTP PRD](https://docs.google.com/document/d/1In1uKSqvrHe5M-KX-sgmuGRC9oWLrqe1wxSbvUESBFc/edit?usp=sharing)
 
 
-### Improved `GoogleAuth` class {#improved-googleauth-class}
+#### New `GoogleAuth` class
 
-This will replace `ApplicationDefaultCredentials` with a centralized, single entrypoint for users.
+`GoogleAuth` replaces `ApplicationDefaultCredentials`, and provides a
+centralized, single entrypoint to the auth library:
 
 ```php
 namespace Google\Auth;
@@ -87,37 +97,38 @@ $authHttp = $auth->makeHttpClient(new Google\Http\Guzzle6Client($guzzle));
 $response = $authHttp->sendRequest(new Request('GET', '/'));
 ```
 
+The new `GoogleAuth` class does the following:
+
 *   Returns Application Default Credentials for the environment
-*   Improve interface
-    *   Use options array instead of list of arguments in method signature
-    *   Consolidate HTTP Handler / Caching options
-    *   Remove static methods
-    *   Add "extensible options" support
+*   Improved class interface:
+    *   Uses options array instead of list of arguments in method signature
+    *   Consolidates HTTP Handler / Caching options
+    *   Removes static methods
 
 **Example: Metadata**
 
 ```php
-// v1 implementation
-$onGce = GCECredentials::onGce($httpHandler = null);
-
-// v2 implementation
+// 2.0 implementation
 $auth = new GoogleAuth();
 if ($auth->onCompute()) {
    // ...
 }
+
+// 1.0 implementation:
+// GCECredentials::onGce($httpHandler = null);
 ```
 
-### Improved `Credentials` Interface
+#### Improved `Credentials` Interface
 
-*   Use options array instead of list of arguments in method signature
-    *   `http`, `httpOptions`, `cache`, `cacheOptions`, all extensible options
-*   Rename `updateMetadata` to `getRequestMetadata`
-    *   It now returns an array of headers instead of updating an existing array
-*   Remove** tokenCallback**
+*   Uses options array instead of list of arguments in method signature
+    *   `http`, `httpOptions`, `cache`, `cacheOptions`
+*   Renames `updateMetadata` to `getRequestMetadata`
+    *   An array of headers is returned instead of updating an existing array
+*   Removes **tokenCallback**
     *   Anything done here should be doable with the HttpHandler
-    *   Proper caching should make this unnecessary
-*   Remove **getUpdateMetadataFunc**
-*   Remove **makeInsecureCredentials**
+    *   Proper caching makes this unnecessary
+*   Removes **getUpdateMetadataFunc**
+*   Removes **makeInsecureCredentials**
 
 ```php
 namespace Google\Auth\Credentials;
@@ -129,49 +140,41 @@ use Google\Http\ClientInterface;
  */
 interface CredentialsInterface
 {
-    const X_GOOG_USER_PROJECT_HEADER = 'X-Goog-User-Project';
-
     /**
      * Fetches the auth tokens based on the current state.
-     *
      * @return array a hash of auth tokens
      */
     public function fetchAuthToken(): array;
 
     /**
      * Returns metadata with the authorization token.
-     *
-     * @param array $metadata metadata hashmap
-     *
      * @return array
      */
     public function getRequestMetadata(): array;
 
     /**
      * Get the project ID.
-     *
      * @return string|null
      */
     public function getProjectId(): ?string;
 
     /**
      * Get the quota project used for this API request
-     *
      * @return string|null
      */
     public function getQuotaProject(): ?string;
 }
 ```
 
-### Improved ID Token Auth
+#### Improved ID Token Auth
 
-*   Refactor `AccessToken` class into `OAuth2` and `GoogleAuth` classes
-    *   Add verify functions to OAuth2 class (see [nodejs](https://github.com/googleapis/google-auth-library-nodejs/blob/master/samples/verifyIdToken-iap.js#L52))
-    *   Add cert fetching functions in `GoogleAuth`
-*   Remove `SimpleJWT `dependency
-*   Remove `phpseclib` dependency in favor of `openssl` extension
+*   The `AccessToken` class has been combined with `OAuth2` and `GoogleAuth`
+    *   `verify` functions are in the OAuth2 class
+    *   cert fetching functions are in `GoogleAuth`
+*   Removed `SimpleJWT `dependency
+*   Removed `phpseclib` dependency in favor of `openssl` extension
 *   Validates options and throws error if `targetAudience` is supplied to credentials which do not support ID token auth
-*   **TODO: **Should we make fetching IAP certs or OIDC certs implicit? Right now, the user has to specify the IAP cert URL.
+*   **TODO:** Should we make fetching IAP certs or OIDC certs implicit? Right now, the user has to specify the IAP cert URL.
     *   Other languages do this. The only downside is we must inspect the JWT header before verifying to determine the algorithm
 
 **ID token auth (implicit)**
@@ -192,13 +195,11 @@ $http = $auth->makeHttpClient();
 $response = $http->send(new Request('GET', $cloudRunUrl));
 ```
 
-### SignBlob Implementation
+#### SignBlob Implementation
 
 *   Fallback to calling [Service Account Credentials](https://cloud.google.com/iam/docs/reference/credentials/rest) API if `openssl` isn't installed
-*   Add to `UserRefreshCredentials`
-    *   Path requires
 
-### Improved 3LO Support
+#### Improved 3LO Support
 
 *   Ensure refresh token is used when access token is expired
 *   Add `OAuthCredentials` class for wrapping the OAuth2 service
@@ -214,7 +215,7 @@ $oauth = new OAuth2(
 ]);
 ```
 
-*   Provide 3LO example:
+**3LO example:**
 
 ```php
 use Google\Auth\OAuth2;
@@ -253,15 +254,15 @@ $http = new CredentialsClient(new OAuthCredentials($oauth));
 $http->send(new Request('GET', 'https://www.googleapis.com/drive/v3/files'));
 ```
 
-## Breaking Changes {#breaking-changes}
+### Breaking Changes {#breaking-changes}
 
-### Dropped Library Support {#dropped-library-support}
+#### Dropped Library Support {#dropped-library-support}
 
 *   Drop support for Guzzle 5
 *   Drop support for `firebase\php-jwt` 2.0, 3.0, and 4.0
 *   Drop support for App Engine `php55`
 
-### Class/Interface Renames {#class-interface-renames}
+#### Class/Interface Renames {#class-interface-renames}
 
 
 <table>
@@ -345,7 +346,7 @@ Consistency with SignBlob traits.
 
 
 
-### Class/Interface Removals {#class-interface-removals}
+#### Class/Interface Removals
 
 
 <table>
@@ -501,7 +502,7 @@ Guzzle 5 is no longer supported
 
 
 
-### Method Removals {#method-removals}
+#### Method Removals
 
 
 <table>
@@ -661,9 +662,9 @@ More clearly identifies that no network calls are made
   </tr>
 </table>
 
-### Other breaking changes {#other-breaking-changes}
+#### Other breaking changes
 
-*   The `$tokenCallback` arguments have been removed. See [Improved Credentials Interface](#improved-credentials-interface).
+*   The `$tokenCallback` arguments have been removed. See **Improved Credentials Interface**
 *   `CredentialsInterface `implementations no longer extend `CredentialsLoader` (as it's been removed)
 *   `OAuth2` no longer implements `CredentialsInterface` (previously `FetchAuthTokenInterface`), and instead is passed to an `OAuth2Credentials` object which does.
 *   Removed class constant `ApplicationDefaultCredentials::AUTH_METADATA_KEY`
