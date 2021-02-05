@@ -15,19 +15,19 @@
  * limitations under the License.
  */
 
-namespace Google\Auth\Tests;
+namespace Google\Auth\Tests\Credentials;
 
-use Google\Auth\CacheTrait;
+use Google\Auth\Credentials\CredentialsTrait;
 use PHPUnit\Framework\TestCase;
 use Prophecy\Argument;
 
-class CacheTraitTest extends TestCase
+class CredentialsTraitTest extends TestCase
 {
     private $mockFetcher;
     private $mockCacheItem;
     private $mockCache;
 
-    public function setUp()
+    public function setUp(): void
     {
         $this->mockFetcher = $this->prophesize('Google\Auth\FetchAuthTokenInterface');
         $this->mockCacheItem = $this->prophesize('Psr\Cache\CacheItemInterface');
@@ -47,7 +47,7 @@ class CacheTraitTest extends TestCase
             ->shouldBeCalledTimes(1)
             ->willReturn($this->mockCacheItem->reveal());
 
-        $implementation = new CacheTraitImplementation([
+        $implementation = new CredentialsTraitImplementation([
             'cache' => $this->mockCache->reveal(),
         ]);
 
@@ -70,7 +70,7 @@ class CacheTraitTest extends TestCase
             ->shouldBeCalledTimes(1)
             ->willReturn($this->mockCacheItem->reveal());
 
-        $implementation = new CacheTraitImplementation([
+        $implementation = new CredentialsTraitImplementation([
             'cache' => $this->mockCache->reveal(),
             'key' => $key,
         ]);
@@ -96,7 +96,7 @@ class CacheTraitTest extends TestCase
             ->shouldBeCalledTimes(1)
             ->willReturn($this->mockCacheItem->reveal());
 
-        $implementation = new CacheTraitImplementation([
+        $implementation = new CredentialsTraitImplementation([
             'cache' => $this->mockCache->reveal(),
             'key' => $key
         ]);
@@ -107,7 +107,7 @@ class CacheTraitTest extends TestCase
 
     public function testFailsPullFromCacheWithNoCache()
     {
-        $implementation = new CacheTraitImplementation();
+        $implementation = new CredentialsTraitImplementation();
 
         $cachedValue = $implementation->gCachedValue();
         $this->assertEquals(null, $cachedValue);
@@ -115,7 +115,7 @@ class CacheTraitTest extends TestCase
 
     public function testFailsPullFromCacheWithoutKey()
     {
-        $implementation = new CacheTraitImplementation([
+        $implementation = new CredentialsTraitImplementation([
             'cache' => $this->mockCache->reveal(),
             'key'   => null,
         ]);
@@ -135,7 +135,7 @@ class CacheTraitTest extends TestCase
         $this->mockCache->save(Argument::type('Psr\Cache\CacheItemInterface'))
             ->shouldBeCalled();
 
-        $implementation = new CacheTraitImplementation([
+        $implementation = new CredentialsTraitImplementation([
             'cache' => $this->mockCache->reveal(),
         ]);
 
@@ -144,7 +144,7 @@ class CacheTraitTest extends TestCase
 
     public function testFailsSetToCacheWithNoCache()
     {
-        $implementation = new CacheTraitImplementation();
+        $implementation = new CredentialsTraitImplementation();
 
         $implementation->sCachedValue('1234');
 
@@ -154,7 +154,7 @@ class CacheTraitTest extends TestCase
 
     public function testFailsSetToCacheWithoutKey()
     {
-        $implementation = new CacheTraitImplementation([
+        $implementation = new CredentialsTraitImplementation([
             'cache' => $this->mockCache,
             'key'   => null,
         ]);
@@ -164,9 +164,9 @@ class CacheTraitTest extends TestCase
     }
 }
 
-class CacheTraitImplementation
+class CredentialsTraitImplementation
 {
-    use CacheTrait;
+    use CredentialsTrait;
 
     private $cache;
     private $cacheConfig;

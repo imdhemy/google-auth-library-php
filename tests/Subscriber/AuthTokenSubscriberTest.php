@@ -31,7 +31,7 @@ class AuthTokenSubscriberTest extends BaseTest
     private $mockCacheItem;
     private $mockCache;
 
-    protected function setUp()
+    protected function setUp(): void
     {
         $this->onlyGuzzle5();
 

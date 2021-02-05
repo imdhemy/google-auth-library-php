@@ -29,20 +29,16 @@ class OAuth2AuthorizationUriTest extends TestCase
         'clientId' => 'aClientID',
     ];
 
-    /**
-     * @expectedException InvalidArgumentException
-     */
     public function testIsNullIfAuthorizationUriIsNull()
     {
+        $this->expectException('InvalidArgumentException');
         $o = new OAuth2([]);
         $this->assertNull($o->buildFullAuthorizationUri());
     }
 
-    /**
-     * @expectedException InvalidArgumentException
-     */
     public function testRequiresTheClientId()
     {
+        $this->expectException('InvalidArgumentException');
         $o = new OAuth2([
             'authorizationUri' => 'https://accounts.test.org/auth/url',
             'redirectUri' => 'https://accounts.test.org/redirect/url',
@@ -50,11 +46,9 @@ class OAuth2AuthorizationUriTest extends TestCase
         $o->buildFullAuthorizationUri();
     }
 
-    /**
-     * @expectedException InvalidArgumentException
-     */
     public function testRequiresTheRedirectUri()
     {
+        $this->expectException('InvalidArgumentException');
         $o = new OAuth2([
             'authorizationUri' => 'https://accounts.test.org/auth/url',
             'clientId' => 'aClientID',
@@ -62,11 +56,9 @@ class OAuth2AuthorizationUriTest extends TestCase
         $o->buildFullAuthorizationUri();
     }
 
-    /**
-     * @expectedException InvalidArgumentException
-     */
     public function testCannotHavePromptAndApprovalPrompt()
     {
+        $this->expectException('InvalidArgumentException');
         $o = new OAuth2([
             'authorizationUri' => 'https://accounts.test.org/auth/url',
             'clientId' => 'aClientID',
@@ -77,11 +69,9 @@ class OAuth2AuthorizationUriTest extends TestCase
         ]);
     }
 
-    /**
-     * @expectedException InvalidArgumentException
-     */
     public function testCannotHaveInsecureAuthorizationUri()
     {
+        $this->expectException('InvalidArgumentException');
         $o = new OAuth2([
             'authorizationUri' => 'http://accounts.test.org/insecure/url',
             'redirectUri' => 'https://accounts.test.org/redirect/url',
@@ -90,11 +80,9 @@ class OAuth2AuthorizationUriTest extends TestCase
         $o->buildFullAuthorizationUri();
     }
 
-    /**
-     * @expectedException InvalidArgumentException
-     */
     public function testCannotHaveRelativeRedirectUri()
     {
+        $this->expectException('InvalidArgumentException');
         $o = new OAuth2([
             'authorizationUri' => 'http://accounts.test.org/insecure/url',
             'redirectUri' => '/redirect/url',
@@ -109,15 +97,6 @@ class OAuth2AuthorizationUriTest extends TestCase
         $q = Psr7\parse_query($o->buildFullAuthorizationUri()->getQuery());
         $this->assertEquals('code', $q['response_type']);
         $this->assertEquals('offline', $q['access_type']);
-    }
-
-    public function testCanBeUrlObject()
-    {
-        $config = array_merge($this->minimal, [
-            'authorizationUri' => Psr7\uri_for('https://another/uri'),
-        ]);
-        $o = new OAuth2($config);
-        $this->assertEquals('/uri', $o->buildFullAuthorizationUri()->getPath());
     }
 
     public function testCanOverrideParams()
@@ -337,11 +316,9 @@ class OAuth2GeneralTest extends TestCase
         'clientId' => 'aClientID',
     ];
 
-    /**
-     * @expectedException InvalidArgumentException
-     */
     public function testFailsOnUnknownSigningAlgorithm()
     {
+        $this->expectException('InvalidArgumentException');
         $o = new OAuth2($this->minimal);
         $o->setSigningAlgorithm('this is definitely not an algorithm name');
     }
@@ -355,11 +332,9 @@ class OAuth2GeneralTest extends TestCase
         }
     }
 
-    /**
-     * @expectedException InvalidArgumentException
-     */
     public function testFailsOnRelativeRedirectUri()
     {
+        $this->expectException('InvalidArgumentException');
         $o = new OAuth2($this->minimal);
         $o->setRedirectUri('/relative/url');
     }
@@ -384,22 +359,18 @@ class OAuth2JwtTest extends TestCase
         'clientId' => 'aClientID',
     ];
 
-    /**
-     * @expectedException DomainException
-     */
     public function testFailsWithMissingAudience()
     {
+        $this->expectException('DomainException');
         $testConfig = $this->signingMinimal;
         unset($testConfig['audience']);
         $o = new OAuth2($testConfig);
         $o->toJwt();
     }
 
-    /**
-     * @expectedException DomainException
-     */
     public function testFailsWithMissingIssuer()
     {
+        $this->expectException('DomainException');
         $testConfig = $this->signingMinimal;
         unset($testConfig['issuer']);
         $o = new OAuth2($testConfig);
@@ -416,22 +387,18 @@ class OAuth2JwtTest extends TestCase
         $o->toJwt();
     }
 
-    /**
-     * @expectedException DomainException
-     */
     public function testFailsWithMissingSigningKey()
     {
+        $this->expectException('DomainException');
         $testConfig = $this->signingMinimal;
         unset($testConfig['signingKey']);
         $o = new OAuth2($testConfig);
         $o->toJwt();
     }
 
-    /**
-     * @expectedException DomainException
-     */
     public function testFailsWithMissingSigningAlgorithm()
     {
+        $this->expectException('DomainException');
         $testConfig = $this->signingMinimal;
         unset($testConfig['signingAlgorithm']);
         $o = new OAuth2($testConfig);
@@ -542,22 +509,18 @@ class OAuth2GenerateAccessTokenRequestTest extends TestCase
         'clientId' => 'aClientID',
     ];
 
-    /**
-     * @expectedException DomainException
-     */
     public function testFailsIfNoTokenCredentialUri()
     {
+        $this->expectException('DomainException');
         $testConfig = $this->tokenRequestMinimal;
         unset($testConfig['tokenCredentialUri']);
         $o = new OAuth2($testConfig);
         $o->generateCredentialsRequest();
     }
 
-    /**
-     * @expectedException DomainException
-     */
     public function testFailsIfAuthorizationCodeIsMissing()
     {
+        $this->expectException('DomainException');
         $testConfig = $this->tokenRequestMinimal;
         $testConfig['redirectUri'] = 'https://has/redirect/uri';
         $o = new OAuth2($testConfig);
@@ -692,11 +655,9 @@ class OAuth2FetchAuthTokenTest extends TestCase
         'clientId' => 'aClientID',
     ];
 
-    /**
-     * @expectedException GuzzleHttp\Exception\ClientException
-     */
     public function testFailsOn400()
     {
+        $this->expectException('GuzzleHttp\Exception\ClientException');
         $testConfig = $this->fetchAuthTokenMinimal;
         $httpHandler = getHandler([
             buildResponse(400),
@@ -705,11 +666,9 @@ class OAuth2FetchAuthTokenTest extends TestCase
         $o->fetchAuthToken($httpHandler);
     }
 
-    /**
-     * @expectedException GuzzleHttp\Exception\ServerException
-     */
     public function testFailsOn500()
     {
+        $this->expectException('GuzzleHttp\Exception\ServerException');
         $testConfig = $this->fetchAuthTokenMinimal;
         $httpHandler = getHandler([
             buildResponse(500),
@@ -718,12 +677,10 @@ class OAuth2FetchAuthTokenTest extends TestCase
         $o->fetchAuthToken($httpHandler);
     }
 
-    /**
-     * @expectedException Exception
-     * @expectedExceptionMessage Invalid JSON response
-     */
     public function testFailsOnNoContentTypeIfResponseIsNotJSON()
     {
+        $this->expectException('Exception');
+        $this->expectExceptionMessage('Invalid JSON response');
         $testConfig = $this->fetchAuthTokenMinimal;
         $notJson = '{"foo": , this is cannot be passed as json" "bar"}';
         $httpHandler = getHandler([
@@ -908,7 +865,7 @@ class OAuth2VerifyIdTokenTest extends TestCase
         'clientId' => 'myaccount.on.host.issuer.com',
     ];
 
-    public function setUp()
+    public function setUp(): void
     {
         $this->publicKey =
             file_get_contents(__DIR__ . '/fixtures' . '/public.pem');
@@ -916,11 +873,9 @@ class OAuth2VerifyIdTokenTest extends TestCase
             file_get_contents(__DIR__ . '/fixtures' . '/private.pem');
     }
 
-    /**
-     * @expectedException UnexpectedValueException
-     */
     public function testFailsIfIdTokenIsInvalid()
     {
+        $this->expectException('UnexpectedValueException');
         $testConfig = $this->verifyIdTokenMinimal;
         $not_a_jwt = 'not a jot';
         $o = new OAuth2($testConfig);
@@ -928,11 +883,9 @@ class OAuth2VerifyIdTokenTest extends TestCase
         $o->verifyIdToken($this->publicKey);
     }
 
-    /**
-     * @expectedException DomainException
-     */
     public function testFailsIfAudienceIsMissing()
     {
+        $this->expectException('DomainException');
         $testConfig = $this->verifyIdTokenMinimal;
         $now = time();
         $origIdToken = [
@@ -946,11 +899,9 @@ class OAuth2VerifyIdTokenTest extends TestCase
         $o->verifyIdToken($this->publicKey, ['RS256']);
     }
 
-    /**
-     * @expectedException DomainException
-     */
     public function testFailsIfAudienceIsWrong()
     {
+        $this->expectException('DomainException');
         $now = time();
         $testConfig = $this->verifyIdTokenMinimal;
         $origIdToken = [
@@ -992,5 +943,236 @@ class OAuth2VerifyIdTokenTest extends TestCase
         }
 
         return call_user_func_array("$class::encode", $args);
+    }
+}
+
+/**
+ * @group access-token
+ */
+class OAuth2IdTokenVerifyTest extends TestCase
+{
+    private $cache;
+    private $payload;
+
+    private $token;
+    private $publicKey;
+    private $allowedAlgs;
+
+    public function setUp(): void
+    {
+        $this->cache = $this->prophesize('Psr\Cache\CacheItemPoolInterface');
+        $this->jwt = $this->prophesize('Firebase\JWT\JWT');
+        $this->token = 'foobar';
+        $this->publicKey = 'barfoo';
+
+        $this->payload = [
+            'iat' => time(),
+            'exp' => time() + 30,
+            'name' => 'foo',
+            'iss' => GoogleAuth::OIDC_ISSUERS[1]
+        ];
+    }
+
+    /**
+     * @dataProvider verifyCalls
+     */
+    public function testVerify(
+        $payload,
+        $expected,
+        $audience = null,
+        $exception = null,
+        $certsLocation = null,
+        $issuer = null
+    ) {
+        $item = $this->prophesize('Psr\Cache\CacheItemInterface');
+        $item->get()->willReturn([
+            'keys' => [
+                [
+                    'kid' => 'ddddffdfd',
+                    'e' => 'AQAB',
+                    'kty' => 'RSA',
+                    'alg' => $certsLocation ? 'ES256' : 'RS256',
+                    'n' => $this->publicKey,
+                    'use' => 'sig'
+                ]
+            ]
+        ]);
+
+        $cacheKey = 'google_auth_certs_cache|' .
+            ($certsLocation ? sha1($certsLocation) : 'federated_signon_certs_v3');
+        $this->cache->getItem($cacheKey)
+            ->shouldBeCalledTimes(1)
+            ->willReturn($item->reveal());
+
+        $token = new AccessTokenStub(
+            null,
+            $this->cache->reveal()
+        );
+
+        $token->mocks['decode'] = function ($token, $publicKey, $allowedAlgs) use ($payload, $exception) {
+            $this->assertEquals($this->token, $token);
+
+            if ($exception) {
+                throw $exception;
+            }
+
+            return (object) $payload;
+        };
+
+        $e = null;
+        $res = false;
+        try {
+            $res = $token->verify($this->token, [
+                'audience' => $audience,
+                'issuer' => $issuer,
+                'certsLocation' => $certsLocation,
+                'throwException' => (bool) $exception,
+            ]);
+        } catch (\Exception $e) {
+        }
+
+        $this->assertEquals($expected, $res);
+        $this->assertEquals($exception, $e);
+    }
+
+    public function verifyCalls()
+    {
+        $this->setUp();
+
+        if (class_exists('Firebase\JWT\JWT')) {
+            $expiredException = 'Firebase\JWT\ExpiredException';
+            $sigInvalidException = 'Firebase\JWT\SignatureInvalidException';
+        } else {
+            $expiredException = 'ExpiredException';
+            $sigInvalidException = 'SignatureInvalidException';
+        }
+
+        return [
+            [
+                $this->payload,
+                $this->payload,
+            ], [
+                $this->payload + [
+                    'aud' => 'foo'
+                ],
+                $this->payload + [
+                    'aud' => 'foo'
+                ],
+                'foo'
+            ], [
+                $this->payload + [
+                    'aud' => 'foo'
+                ],
+                false,
+                'bar'
+            ], [
+                [
+                    'iss' => 'invalid'
+                ] + $this->payload,
+                false
+            ], [
+                [
+                    'iss' => 'baz'
+                ] + $this->payload,
+                [
+                    'iss' => 'baz'
+                ] + $this->payload,
+                null,
+                null,
+                null,
+                'baz'
+            ], [
+                $this->payload,
+                false,
+                null,
+                new $expiredException('expired!')
+            ], [
+                $this->payload,
+                false,
+                null,
+                new $sigInvalidException('invalid!')
+            ], [
+                $this->payload,
+                false,
+                null,
+                new \DomainException('expired!')
+            ], [
+                [
+                    'iss' => GoogleAuth::IAP_ISSUERS[0]
+                ] + $this->payload, [
+                    'iss' => GoogleAuth::IAP_ISSUERS[0]
+                ] + $this->payload,
+                null,
+                null,
+                GoogleAuth::OIDC_CERT_URI
+            ], [
+                [
+                    'iss' => 'invalid',
+                ] + $this->payload,
+                false,
+                null,
+                null,
+                GoogleAuth::OIDC_CERT_URI
+            ], [
+                [
+                    'iss' => GoogleAuth::IAP_ISSUERS[0],
+                ] + $this->payload + [
+                    'aud' => 'foo'
+                ],
+                false,
+                'bar',
+                null,
+                GoogleAuth::OIDC_CERT_URI
+            ], [
+                [
+                    'iss' => 'baz'
+                ] + $this->payload,
+                false,
+                null,
+                null,
+                GoogleAuth::OIDC_CERT_URI
+            ], [
+                [
+                    'iss' => 'baz'
+                ] + $this->payload, [
+                    'iss' => 'baz'
+                ] + $this->payload,
+                null,
+                null,
+                GoogleAuth::OIDC_CERT_URI,
+                'baz'
+            ]
+        ];
+    }
+
+    public function testEsVerifyEndToEnd()
+    {
+        if (!$jwt = getenv('IAP_IDENTITY_TOKEN')) {
+            $this->markTestSkipped('Set the IAP_IDENTITY_TOKEN env var');
+        }
+
+        $token = new AccessTokenStub();
+        $token->mocks['decode'] = function ($token, $publicKey, $allowedAlgs) {
+            // Skip expired validation
+            $jwt = SimpleJWT::decode(
+                $token,
+                $publicKey,
+                $allowedAlgs,
+                null,
+                ['exp']
+            );
+            return $jwt->getClaims();
+        };
+
+        // Use Iap Cert URL
+        $payload = $token->verify($jwt, [
+            'certsLocation' => GoogleAuth::OIDC_CERT_URI,
+            'throwException' => true,
+            'issuer' => 'https://cloud.google.com/iap',
+        ]);
+
+        $this->assertNotFalse($payload);
+        $this->assertArrayHasKey('iss', $payload);
+        $this->assertEquals('https://cloud.google.com/iap', $payload['iss']);
     }
 }

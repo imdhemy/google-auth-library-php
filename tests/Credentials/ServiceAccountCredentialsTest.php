@@ -173,7 +173,7 @@ class SACConstructorTest extends TestCase
 
 class SACFromEnvTest extends TestCase
 {
-    protected function tearDown()
+    protected function tearDown(): void
     {
         putenv(ServiceAccountCredentials::ENV_VAR);  // removes it from
     }
@@ -205,12 +205,12 @@ class SACFromWellKnownFileTest extends TestCase
 {
     private $originalHome;
 
-    protected function setUp()
+    protected function setUp(): void
     {
         $this->originalHome = getenv('HOME');
     }
 
-    protected function tearDown()
+    protected function tearDown(): void
     {
         if ($this->originalHome != getenv('HOME')) {
             putenv('HOME=' . $this->originalHome);
@@ -238,7 +238,7 @@ class SACFetchAuthTokenTest extends TestCase
 {
     private $privateKey;
 
-    public function setUp()
+    public function setUp(): void
     {
         $this->privateKey =
             file_get_contents(__DIR__ . '/../fixtures' . '/private.pem');
@@ -405,7 +405,7 @@ class SACJwtAccessTest extends TestCase
 {
     private $privateKey;
 
-    public function setUp()
+    public function setUp(): void
     {
         $this->privateKey =
             file_get_contents(__DIR__ . '/../fixtures' . '/private.pem');
@@ -586,7 +586,7 @@ class SACJwtAccessComboTest extends TestCase
 {
     private $privateKey;
 
-    public function setUp()
+    public function setUp(): void
     {
         $this->privateKey =
             file_get_contents(__DIR__ . '/../fixtures' . '/private.pem');

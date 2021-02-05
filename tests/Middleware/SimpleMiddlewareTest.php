@@ -26,7 +26,7 @@ class SimpleMiddlewareTest extends BaseTest
     /**
      * @todo finish
      */
-    protected function setUp()
+    protected function setUp(): void
     {
         $this->onlyGuzzle6And7();
 

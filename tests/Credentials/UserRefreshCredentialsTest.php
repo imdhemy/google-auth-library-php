@@ -155,7 +155,7 @@ class URCConstructorTest extends TestCase
 
 class URCFromEnvTest extends TestCase
 {
-    protected function tearDown()
+    protected function tearDown(): void
     {
         putenv(UserRefreshCredentials::ENV_VAR);  // removes it from
     }
@@ -187,12 +187,12 @@ class URCFromWellKnownFileTest extends TestCase
 {
     private $originalHome;
 
-    protected function setUp()
+    protected function setUp(): void
     {
         $this->originalHome = getenv('HOME');
     }
 
-    protected function tearDown()
+    protected function tearDown(): void
     {
         if ($this->originalHome != getenv('HOME')) {
             putenv('HOME=' . $this->originalHome);

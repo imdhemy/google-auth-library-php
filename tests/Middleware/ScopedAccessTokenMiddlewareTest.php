@@ -31,7 +31,7 @@ class ScopedAccessTokenMiddlewareTest extends BaseTest
     private $mockCache;
     private $mockRequest;
 
-    protected function setUp()
+    protected function setUp(): void
     {
         $this->onlyGuzzle6And7();
 

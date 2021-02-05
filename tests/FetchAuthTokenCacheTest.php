@@ -30,7 +30,7 @@ class FetchAuthTokenCacheTest extends BaseTest
     private $mockCache;
     private $mockSigner;
 
-    protected function setUp()
+    protected function setUp(): void
     {
         $this->mockFetcher = $this->prophesize();
         $this->mockFetcher->willImplement('Google\Auth\FetchAuthTokenInterface');

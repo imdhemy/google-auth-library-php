@@ -38,7 +38,7 @@ class Guzzle5HttpHandlerTest extends BaseTest
     private $mockClient;
     private $mockFuture;
 
-    public function setUp()
+    public function setUp(): void
     {
         $this->onlyGuzzle5();
 

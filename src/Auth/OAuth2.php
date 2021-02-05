@@ -507,24 +507,6 @@ class OAuth2
     }
 
     /**
-     * Fetches the auth tokens based on the current state.
-     *
-     * @return array the response
-     */
-    public function fetchAuthToken(): array
-    {
-        if (is_null($httpHandler)) {
-            $httpHandler = HttpHandlerFactory::build(HttpClientCache::getHttpClient());
-        }
-
-        $response = $httpHandler($this->generateCredentialsRequest());
-        $credentials = $this->parseTokenResponse($response);
-        $this->updateToken($credentials);
-
-        return $credentials;
-    }
-
-    /**
      * Obtains a key that can used to cache the results of #fetchAuthToken.
      *
      * The key is derived from the scopes.

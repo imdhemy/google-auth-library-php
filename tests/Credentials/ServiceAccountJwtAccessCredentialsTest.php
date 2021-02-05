@@ -41,7 +41,7 @@ class SACJwtAccessTest extends TestCase
 {
     private $privateKey;
 
-    public function setUp()
+    public function setUp(): void
     {
         $this->privateKey =
             file_get_contents(__DIR__ . '/../fixtures' . '/private.pem');
@@ -214,7 +214,7 @@ class SACJwtAccessComboTest extends TestCase
 {
     private $privateKey;
 
-    public function setUp()
+    public function setUp(): void
     {
         $this->privateKey =
             file_get_contents(__DIR__ . '/../fixtures' . '/private.pem');

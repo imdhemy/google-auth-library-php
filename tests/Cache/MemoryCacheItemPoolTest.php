@@ -25,7 +25,7 @@ class MemoryCacheItemPoolTest extends TestCase
 {
     private $pool;
 
-    public function setUp()
+    public function setUp(): void
     {
         $this->pool = new MemoryCacheItemPool();
     }

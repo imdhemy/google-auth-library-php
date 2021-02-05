@@ -1,5 +1,5 @@
 Google Auth Upgrade Guide
-====================
+=========================
 
 1.0 to 2.0
 ----------
@@ -176,6 +176,13 @@ interface CredentialsInterface
 *   Validates options and throws error if `targetAudience` is supplied to credentials which do not support ID token auth
 *   **TODO:** Should we make fetching IAP certs or OIDC certs implicit? Right now, the user has to specify the IAP cert URL.
     *   Other languages do this. The only downside is we must inspect the JWT header before verifying to determine the algorithm
+
+**ID token verify**
+
+```php
+$oauth = new OAuth2();
+$oauth->verify($idToken);
+```
 
 **ID token auth (implicit)**
 
