@@ -15,16 +15,20 @@
  * limitations under the License.
  */
 
-namespace Google\Auth\Tests;
+namespace Google\Auth\Tests\SignBlob;
 
-use Google\Auth\Iam;
+use Google\Auth\SignBlob\ServiceAccountApiSignBlobTrait;
+use Google\Http\ClientInterface;
+use Google\Http\PromiseInterface;
 use GuzzleHttp\Psr7;
 use PHPUnit\Framework\TestCase;
+use Psr\Http\Message\RequestInterface;
+use Psr\Http\Message\ResponseInterface;
 
 /**
  * @group iam
  */
-class IamTest extends TestCase
+class ServiceAccountApiSignBlobTraitTest extends TestCase
 {
     /**
      * @dataProvider delegates
@@ -35,9 +39,13 @@ class IamTest extends TestCase
         $expectedAccessToken = 'token';
         $expectedString = 'toSign';
 
-        $expectedServiceAccount = sprintf(Iam::SERVICE_ACCOUNT_NAME, $expectedEmail);
-        $expectedUri = Iam::IAM_API_ROOT . '/' . sprintf(
-            Iam::SIGN_BLOB_PATH,
+        $expectedServiceAccount = sprintf(
+            'projects/-/serviceAccounts/%s',
+            $expectedEmail
+        );
+
+        $expectedUri = sprintf(
+            'https://iamcredentials.googleapis.com/v1/%s:signBlob?alt=json',
             $expectedServiceAccount
         );
 
@@ -46,13 +54,13 @@ class IamTest extends TestCase
         if ($delegates) {
             $expectedDelegates = $delegates;
             foreach ($expectedDelegates as &$delegate) {
-                $delegate = sprintf(Iam::SERVICE_ACCOUNT_NAME, $delegate);
+                $delegate = sprintf('projects/-/serviceAccounts/%s', $delegate);
             }
         } else {
             $expectedDelegates[] = $expectedServiceAccount;
         }
 
-        $httpHandler = function (Psr7\Request $request) use (
+        $httpHandler = new HttpClientImpl(function (Psr7\Request $request) use (
             $expectedEmail,
             $expectedAccessToken,
             $expectedString,
@@ -71,13 +79,13 @@ class IamTest extends TestCase
             return new Psr7\Response(200, [], Psr7\stream_for(json_encode([
                 'signedBlob' => $expectedResponse
             ])));
-        };
+        });
 
-        $iam = new Iam($httpHandler);
-        $res = $iam->signBlob(
+        $trait = new ServiceAccountApiSignBlobTraitImpl($httpHandler);
+        $res = $trait->signBlob(
+            $expectedString,
             $expectedEmail,
             $expectedAccessToken,
-            $expectedString,
             $delegates
         );
 
@@ -96,5 +104,59 @@ class IamTest extends TestCase
                 ]
             ],
         ];
+    }
+}
+
+class ServiceAccountApiSignBlobTraitImpl
+{
+    use ServiceAccountApiSignBlobTrait;
+
+    private $httpClient;
+
+    public function __construct(ClientInterface $httpClient)
+    {
+        $this->httpClient = $httpClient;
+    }
+
+    public function signBlob(
+        $stringToSign,
+        $email,
+        $accessToken,
+        $delegates
+    ) {
+        return $this->signBlobWithServiceAccountApi(
+            $stringToSign,
+            $email,
+            $accessToken,
+            $this->httpClient,
+            $delegates
+        );
+    }
+}
+
+class HttpClientImpl implements ClientInterface
+{
+    private $httpHandler;
+
+    public function __construct(callable $httpHandler)
+    {
+        $this->httpHandler = $httpHandler;
+    }
+
+    public function send(
+        RequestInterface $request,
+        array $options = []
+    ) : ResponseInterface
+    {
+        $httpHandler = $this->httpHandler;
+        return $httpHandler($request);
+    }
+
+    public function sendAsync(
+        RequestInterface $request,
+        array $options = []
+    ) : PromiseInterface
+    {
+        // no op
     }
 }
