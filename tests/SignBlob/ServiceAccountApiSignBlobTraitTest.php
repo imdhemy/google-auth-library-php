@@ -19,11 +19,8 @@ namespace Google\Auth\Tests\SignBlob;
 
 use Google\Auth\SignBlob\ServiceAccountApiSignBlobTrait;
 use Google\Http\ClientInterface;
-use Google\Http\PromiseInterface;
 use GuzzleHttp\Psr7;
 use PHPUnit\Framework\TestCase;
-use Psr\Http\Message\RequestInterface;
-use Psr\Http\Message\ResponseInterface;
 
 /**
  * @group iam
@@ -60,7 +57,7 @@ class ServiceAccountApiSignBlobTraitTest extends TestCase
             $expectedDelegates[] = $expectedServiceAccount;
         }
 
-        $httpHandler = new HttpClientImpl(function (Psr7\Request $request) use (
+        $httpClient = createHttpClient(function (Psr7\Request $request) use (
             $expectedEmail,
             $expectedAccessToken,
             $expectedString,
@@ -81,7 +78,7 @@ class ServiceAccountApiSignBlobTraitTest extends TestCase
             ])));
         });
 
-        $trait = new ServiceAccountApiSignBlobTraitImpl($httpHandler);
+        $trait = new ServiceAccountApiSignBlobTraitImpl($httpClient);
         $res = $trait->signBlob(
             $expectedString,
             $expectedEmail,
@@ -131,32 +128,5 @@ class ServiceAccountApiSignBlobTraitImpl
             $this->httpClient,
             $delegates
         );
-    }
-}
-
-class HttpClientImpl implements ClientInterface
-{
-    private $httpHandler;
-
-    public function __construct(callable $httpHandler)
-    {
-        $this->httpHandler = $httpHandler;
-    }
-
-    public function send(
-        RequestInterface $request,
-        array $options = []
-    ) : ResponseInterface
-    {
-        $httpHandler = $this->httpHandler;
-        return $httpHandler($request);
-    }
-
-    public function sendAsync(
-        RequestInterface $request,
-        array $options = []
-    ) : PromiseInterface
-    {
-        // no op
     }
 }

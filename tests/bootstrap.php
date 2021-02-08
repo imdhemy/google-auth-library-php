@@ -19,6 +19,11 @@ error_reporting(E_ALL | E_STRICT);
 require dirname(__DIR__) . '/vendor/autoload.php';
 date_default_timezone_set('UTC');
 
+use Google\Http\PromiseInterface;
+use Google\Http\ClientInterface;
+use Psr\Http\Message\RequestInterface;
+use Psr\Http\Message\ResponseInterface;
+
 function buildResponse($code, array $headers = [], $body = null)
 {
     if (class_exists('GuzzleHttp\HandlerStack')) {
@@ -49,4 +54,36 @@ function getHandler(array $mockResponses = [])
     );
 
     return new \Google\Auth\HttpHandler\Guzzle5HttpHandler($client);
+}
+
+function createHttpClient(callable $httpHandler): ClientInterface
+{
+    return new HttpClientImpl($httpHandler);
+}
+
+class HttpClientImpl implements ClientInterface
+{
+    private $httpHandler;
+
+    public function __construct(callable $httpHandler)
+    {
+        $this->httpHandler = $httpHandler;
+    }
+
+    public function send(
+        RequestInterface $request,
+        array $options = []
+    ) : ResponseInterface
+    {
+        $httpHandler = $this->httpHandler;
+        return $httpHandler($request);
+    }
+
+    public function sendAsync(
+        RequestInterface $request,
+        array $options = []
+    ) : PromiseInterface
+    {
+        // no op
+    }
 }

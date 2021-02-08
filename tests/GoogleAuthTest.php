@@ -26,14 +26,22 @@ use PHPUnit\Framework\TestCase;
 use ReflectionClass;
 use Prophecy\Argument;
 
+/**
+ * @runTestsInSeparateProcesses
+ */
 class GoogleAuthTest extends BaseTest
 {
+    private const TEST_TARGET_AUDIENCE = 'a target audience';
+    private const TEST_QUOTA_PROJECT = 'a-quota-project';
+    private const TEST_TOKEN = 'foobar';
+
     private $mockCacheItem;
     private $mockCache;
-    private $targetAudience = 'a target audience';
 
     protected function setUp(): void
     {
+        putenv('HOME');
+        putenv('GOOGLE_APPLICATION_CREDENTIALS');
         $this->mockCacheItem = $this->prophesize('Psr\Cache\CacheItemInterface');
         $this->mockCache = $this->prophesize('Psr\Cache\CacheItemPoolInterface');
     }
@@ -166,36 +174,28 @@ class GoogleAuthTest extends BaseTest
 
     /**
      * @expectedException DomainException
-     * @runInSeparateProcess
      */
     public function testIsFailsEnvSpecifiesNonExistentFile()
     {
         putenv('HOME');
         $keyFile = __DIR__ . '/fixtures' . '/does-not-exist-private.json';
-        putenv(ServiceAccountCredentials::ENV_VAR . '=' . $keyFile);
+        putenv('GOOGLE_APPLICATION_CREDENTIALS=' . $keyFile);
         GoogleAuth::getCredentials('a scope');
     }
 
-    /**
-     * @runInSeparateProcess
-     */
     public function testLoadsOKIfEnvSpecifiedIsValid()
     {
         putenv('HOME');
         $keyFile = __DIR__ . '/fixtures' . '/private.json';
-        putenv(ServiceAccountCredentials::ENV_VAR . '=' . $keyFile);
+        putenv('GOOGLE_APPLICATION_CREDENTIALS=' . $keyFile);
         $this->assertNotNull(
             GoogleAuth::getCredentials('a scope')
         );
     }
 
-    /**
-     * @runInSeparateProcess
-     */
     public function testLoadsDefaultFileIfPresentAndEnvVarIsNotSet()
     {
         putenv('HOME=' . __DIR__ . '/fixtures');
-        putenv(ServiceAccountCredentials::ENV_VAR);
         $this->assertNotNull(
             GoogleAuth::getCredentials('a scope')
         );
@@ -203,12 +203,10 @@ class GoogleAuthTest extends BaseTest
 
     /**
      * @expectedException DomainException
-     * @runInSeparateProcess
      */
     public function testFailsIfNotOnGceAndNoDefaultFileFound()
     {
         putenv('HOME=' . __DIR__ . '/not_exist_fixtures');
-        putenv(ServiceAccountCredentials::ENV_VAR);
         // simulate not being GCE and retry attempts by returning multiple 500s
         $httpHandler = getHandler([
             buildResponse(500),
@@ -219,13 +217,9 @@ class GoogleAuthTest extends BaseTest
         GoogleAuth::getCredentials('a scope', $httpHandler);
     }
 
-    /**
-     * @runInSeparateProcess
-     */
     public function testSuccedsIfNoDefaultFilesButIsOnCompute()
     {
         putenv('HOME');
-        putenv(ServiceAccountCredentials::ENV_VAR);
 
         $wantedTokens = [
             'access_token' => '1/abdef1234567890',
@@ -236,7 +230,7 @@ class GoogleAuthTest extends BaseTest
 
         // simulate the response from GCE.
         $httpHandler = getHandler([
-            buildResponse(200, [ComputeCredentials::FLAVOR_HEADER => 'Google']),
+            buildResponse(200, ['Metadata-Flavor' => 'Google']),
             buildResponse(200, [], Psr7\stream_for($jsonTokens)),
         ]);
 
@@ -244,21 +238,17 @@ class GoogleAuthTest extends BaseTest
             GoogleAuth::getCredentials('a scope', $httpHandler)
         );
     }
-}
 
-class ADCDefaultScopeTest extends TestCase
-{
-    /** @runInSeparateProcess */
-    public function testGceCredentials()
+    public function testComputeCredentials()
     {
         putenv('HOME');
 
         $jsonTokens = json_encode(['access_token' => 'abc']);
 
-        $creds = ApplicationDefaultCredentials::getCredentials(
+        $creds = GoogleAuth::getCredentials(
             null, // $scope
             $httpHandler = getHandler([
-                buildResponse(200, [GCECredentials::FLAVOR_HEADER => 'Google']),
+                buildResponse(200, ['Metadata-Flavor' => 'Google']),
                 buildResponse(200, [], Psr7\stream_for($jsonTokens)),
             ]), // $httpHandler
             null, // $cacheConfig
@@ -296,7 +286,6 @@ class ADCDefaultScopeTest extends TestCase
         $this->assertContains('a+user+scope', $tokenUri);
     }
 
-    /** @runInSeparateProcess */
     public function testUserRefreshCredentials()
     {
         putenv('HOME=' . __DIR__ . '/fixtures2');
@@ -336,7 +325,6 @@ class ADCDefaultScopeTest extends TestCase
         $this->assertEquals('a user scope', $auth->getScope());
     }
 
-    /** @runInSeparateProcess */
     public function testServiceAccountCredentials()
     {
         putenv('HOME=' . __DIR__ . '/fixtures');
@@ -376,7 +364,6 @@ class ADCDefaultScopeTest extends TestCase
         $this->assertEquals('a user scope', $auth->getScope());
     }
 
-    /** @runInSeparateProcess */
     public function testDefaultScopeArray()
     {
         putenv('HOME=' . __DIR__ . '/fixtures2');
@@ -397,338 +384,294 @@ class ADCDefaultScopeTest extends TestCase
         $auth = $authProperty->getValue($creds);
         $this->assertEquals('onescope twoscope', $auth->getScope());
     }
-}
 
-class ADCGetMiddlewareTest extends TestCase
-{
-    private $originalHome;
 
-    protected function setUp(): void
-    {
-        $this->originalHome = getenv('HOME');
-    }
+    // TODO: Refactor Middleware Tests
+    // /**
+    //  * @expectedException DomainException
+    //  */
+    // public function testIsFailsEnvSpecifiesNonExistentFile()
+    // {
+    //     $keyFile = __DIR__ . '/fixtures' . '/does-not-exist-private.json';
+    //     putenv('GOOGLE_APPLICATION_CREDENTIALS=' . $keyFile);
+    //     GoogleAuth::getMiddleware('a scope');
+    // }
 
-    protected function tearDown(): void
-    {
-        if ($this->originalHome != getenv('HOME')) {
-            putenv('HOME=' . $this->originalHome);
-        }
-        putenv(ServiceAccountCredentials::ENV_VAR);  // removes it if assigned
-    }
+    // public function testLoadsOKIfEnvSpecifiedIsValid()
+    // {
+    //     $keyFile = __DIR__ . '/fixtures' . '/private.json';
+    //     putenv('GOOGLE_APPLICATION_CREDENTIALS=' . $keyFile);
+    //     $this->assertNotNull(GoogleAuth::getMiddleware('a scope'));
+    // }
 
-    /**
-     * @expectedException DomainException
-     */
-    public function testIsFailsEnvSpecifiesNonExistentFile()
-    {
-        $keyFile = __DIR__ . '/fixtures' . '/does-not-exist-private.json';
-        putenv(ServiceAccountCredentials::ENV_VAR . '=' . $keyFile);
-        GoogleAuth::getMiddleware('a scope');
-    }
+    // public function testLoadsDefaultFileIfPresentAndEnvVarIsNotSet()
+    // {
+    //     putenv('HOME=' . __DIR__ . '/fixtures');
+    //     $this->assertNotNull(GoogleAuth::getMiddleware('a scope'));
+    // }
 
-    public function testLoadsOKIfEnvSpecifiedIsValid()
-    {
-        $keyFile = __DIR__ . '/fixtures' . '/private.json';
-        putenv(ServiceAccountCredentials::ENV_VAR . '=' . $keyFile);
-        $this->assertNotNull(GoogleAuth::getMiddleware('a scope'));
-    }
+    // /**
+    //  * @expectedException DomainException
+    //  */
+    // public function testFailsIfNotOnComputeAndNoDefaultFileFound()
+    // {
+    //     putenv('HOME=' . __DIR__ . '/not_exist_fixtures');
 
-    public function testLoadsDefaultFileIfPresentAndEnvVarIsNotSet()
-    {
-        putenv('HOME=' . __DIR__ . '/fixtures');
-        $this->assertNotNull(GoogleAuth::getMiddleware('a scope'));
-    }
+    //     // simulate not being GCE and retry attempts by returning multiple 500s
+    //     $httpHandler = getHandler([
+    //         buildResponse(500),
+    //         buildResponse(500),
+    //         buildResponse(500)
+    //     ]);
 
-    /**
-     * @expectedException DomainException
-     */
-    public function testFailsIfNotOnComputeAndNoDefaultFileFound()
-    {
-        putenv('HOME=' . __DIR__ . '/not_exist_fixtures');
+    //     GoogleAuth::getMiddleware('a scope', $httpHandler);
+    // }
 
-        // simulate not being GCE and retry attempts by returning multiple 500s
-        $httpHandler = getHandler([
-            buildResponse(500),
-            buildResponse(500),
-            buildResponse(500)
-        ]);
+    // public function testWithCacheOptions()
+    // {
+    //     $keyFile = __DIR__ . '/fixtures' . '/private.json';
+    //     putenv('GOOGLE_APPLICATION_CREDENTIALS=' . $keyFile);
 
-        GoogleAuth::getMiddleware('a scope', $httpHandler);
-    }
+    //     $httpHandler = getHandler([
+    //         buildResponse(200),
+    //     ]);
 
-    public function testWithCacheOptions()
-    {
-        $keyFile = __DIR__ . '/fixtures' . '/private.json';
-        putenv(ServiceAccountCredentials::ENV_VAR . '=' . $keyFile);
+    //     $cacheOptions = [];
+    //     $cachePool = $this->prophesize('Psr\Cache\CacheItemPoolInterface');
 
-        $httpHandler = getHandler([
-            buildResponse(200),
-        ]);
+    //     $middleware = GoogleAuth::getMiddleware(
+    //         'a scope',
+    //         $httpHandler,
+    //         $cacheOptions,
+    //         $cachePool->reveal()
+    //     );
+    // }
 
-        $cacheOptions = [];
-        $cachePool = $this->prophesize('Psr\Cache\CacheItemPoolInterface');
+    // public function testSuccedsIfNoDefaultFilesButIsOnCompute()
+    // {
+    //     $wantedTokens = [
+    //         'access_token' => '1/abdef1234567890',
+    //         'expires_in' => '57',
+    //         'token_type' => 'Bearer',
+    //     ];
+    //     $jsonTokens = json_encode($wantedTokens);
 
-        $middleware = GoogleAuth::getMiddleware(
-            'a scope',
-            $httpHandler,
-            $cacheOptions,
-            $cachePool->reveal()
-        );
-    }
+    //     // simulate the response from GCE.
+    //     $httpHandler = getHandler([
+    //         buildResponse(200, ['Metadata-Flavor' => 'Google']),
+    //         buildResponse(200, [], Psr7\stream_for($jsonTokens)),
+    //     ]);
 
-    public function testSuccedsIfNoDefaultFilesButIsOnCompute()
-    {
-        $wantedTokens = [
-            'access_token' => '1/abdef1234567890',
-            'expires_in' => '57',
-            'token_type' => 'Bearer',
-        ];
-        $jsonTokens = json_encode($wantedTokens);
+    //     $googleAuth = new GoogleAuth(['httpHandler' => $httpHandler]);
+    //     $client = $googleAuth->makeHttpClient('a scope');
 
-        // simulate the response from GCE.
-        $httpHandler = getHandler([
-            buildResponse(200, [ComputeCredentials::FLAVOR_HEADER => 'Google']),
-            buildResponse(200, [], Psr7\stream_for($jsonTokens)),
-        ]);
+    //     $this->assertNotNull($client);
+    // }
 
-        $googleAuth = new GoogleAuth(['httpHandler' => $httpHandler]);
-        $client = $googleAuth->makeHttpClient('a scope');
+    // /**
+    //  * @expectedException DomainException
+    //  */
+    // public function testOnComputeCacheWithHit()
+    // {
+    //     putenv('HOME=' . __DIR__ . '/not_exist_fixtures');
 
-        $this->assertNotNull($client);
-    }
+    //     $mockCacheItem = $this->prophesize('Psr\Cache\CacheItemInterface');
+    //     $mockCacheItem->isHit()
+    //         ->willReturn(true);
+    //     $mockCacheItem->get()
+    //         ->shouldBeCalledTimes(1)
+    //         ->willReturn(false);
 
-    /**
-     * @expectedException DomainException
-     */
-    public function testOnComputeCacheWithHit()
-    {
-        putenv('HOME=' . __DIR__ . '/not_exist_fixtures');
+    //     $mockCache = $this->prophesize('Psr\Cache\CacheItemPoolInterface');
+    //     $mockCache->getItem('google_auth_on_gce_cache')
+    //         ->shouldBeCalledTimes(1)
+    //         ->willReturn($mockCacheItem->reveal());
 
-        $mockCacheItem = $this->prophesize('Psr\Cache\CacheItemInterface');
-        $mockCacheItem->isHit()
-            ->willReturn(true);
-        $mockCacheItem->get()
-            ->shouldBeCalledTimes(1)
-            ->willReturn(false);
+    //     ApplicationDefaultCredentials::getMiddleware(
+    //         'a scope',
+    //         null,
+    //         null,
+    //         $mockCache->reveal()
+    //     );
+    // }
 
-        $mockCache = $this->prophesize('Psr\Cache\CacheItemPoolInterface');
-        $mockCache->getItem('google_auth_on_gce_cache')
-            ->shouldBeCalledTimes(1)
-            ->willReturn($mockCacheItem->reveal());
+    // public function testOnComputeCacheWithoutHit()
+    // {
+    //     putenv('HOME=' . __DIR__ . '/not_exist_fixtures');
 
-        ApplicationDefaultCredentials::getMiddleware(
-            'a scope',
-            null,
-            null,
-            $mockCache->reveal()
-        );
-    }
+    //     $gceIsCalled = false;
+    //     $dummyHandler = function ($request) use (&$gceIsCalled) {
+    //         $gceIsCalled = true;
+    //         return new Psr7\Response(200, [GCECredentials::FLAVOR_HEADER => 'Google']);
+    //     };
+    //     $mockCacheItem = $this->prophesize('Psr\Cache\CacheItemInterface');
+    //     $mockCacheItem->isHit()
+    //         ->willReturn(false);
+    //     $mockCacheItem->set(true)
+    //         ->shouldBeCalledTimes(1);
+    //     $mockCacheItem->expiresAfter(1500)
+    //         ->shouldBeCalledTimes(1);
 
-    public function testOnComputeCacheWithoutHit()
-    {
-        putenv('HOME=' . __DIR__ . '/not_exist_fixtures');
+    //     $mockCache = $this->prophesize('Psr\Cache\CacheItemPoolInterface');
+    //     $mockCache->getItem('google_auth_on_gce_cache')
+    //         ->shouldBeCalledTimes(2)
+    //         ->willReturn($mockCacheItem->reveal());
+    //     $mockCache->save($mockCacheItem->reveal())
+    //         ->shouldBeCalled();
 
-        $gceIsCalled = false;
-        $dummyHandler = function ($request) use (&$gceIsCalled) {
-            $gceIsCalled = true;
-            return new Psr7\Response(200, [GCECredentials::FLAVOR_HEADER => 'Google']);
-        };
-        $mockCacheItem = $this->prophesize('Psr\Cache\CacheItemInterface');
-        $mockCacheItem->isHit()
-            ->willReturn(false);
-        $mockCacheItem->set(true)
-            ->shouldBeCalledTimes(1);
-        $mockCacheItem->expiresAfter(1500)
-            ->shouldBeCalledTimes(1);
+    //     $creds = ApplicationDefaultCredentials::getMiddleware(
+    //         'a scope',
+    //         $dummyHandler,
+    //         null,
+    //         $mockCache->reveal()
+    //     );
 
-        $mockCache = $this->prophesize('Psr\Cache\CacheItemPoolInterface');
-        $mockCache->getItem('google_auth_on_gce_cache')
-            ->shouldBeCalledTimes(2)
-            ->willReturn($mockCacheItem->reveal());
-        $mockCache->save($mockCacheItem->reveal())
-            ->shouldBeCalled();
+    //     $this->assertTrue($gceIsCalled);
+    // }
 
-        $creds = ApplicationDefaultCredentials::getMiddleware(
-            'a scope',
-            $dummyHandler,
-            null,
-            $mockCache->reveal()
-        );
+    // public function testOnComputeCacheWithOptions()
+    // {
+    //     putenv('HOME=' . __DIR__ . '/not_exist_fixtures');
 
-        $this->assertTrue($gceIsCalled);
-    }
+    //     $prefix = 'test_prefix_';
+    //     $lifetime = '70707';
 
-    public function testOnComputeCacheWithOptions()
-    {
-        putenv('HOME=' . __DIR__ . '/not_exist_fixtures');
+    //     $gceIsCalled = false;
+    //     $dummyHandler = function ($request) use (&$gceIsCalled) {
+    //         $gceIsCalled = true;
+    //         return new Psr7\Response(200, [GCECredentials::FLAVOR_HEADER => 'Google']);
+    //     };
+    //     $mockCacheItem = $this->prophesize('Psr\Cache\CacheItemInterface');
+    //     $mockCacheItem->isHit()
+    //         ->willReturn(false);
+    //     $mockCacheItem->set(true)
+    //         ->shouldBeCalledTimes(1);
+    //     $mockCacheItem->expiresAfter($lifetime)
+    //         ->shouldBeCalledTimes(1);
 
-        $prefix = 'test_prefix_';
-        $lifetime = '70707';
+    //     $mockCache = $this->prophesize('Psr\Cache\CacheItemPoolInterface');
+    //     $mockCache->getItem($prefix . 'google_auth_on_gce_cache')
+    //         ->shouldBeCalledTimes(2)
+    //         ->willReturn($mockCacheItem->reveal());
+    //     $mockCache->save($mockCacheItem->reveal())
+    //         ->shouldBeCalled();
 
-        $gceIsCalled = false;
-        $dummyHandler = function ($request) use (&$gceIsCalled) {
-            $gceIsCalled = true;
-            return new Psr7\Response(200, [GCECredentials::FLAVOR_HEADER => 'Google']);
-        };
-        $mockCacheItem = $this->prophesize('Psr\Cache\CacheItemInterface');
-        $mockCacheItem->isHit()
-            ->willReturn(false);
-        $mockCacheItem->set(true)
-            ->shouldBeCalledTimes(1);
-        $mockCacheItem->expiresAfter($lifetime)
-            ->shouldBeCalledTimes(1);
+    //     $creds = ApplicationDefaultCredentials::getMiddleware(
+    //         'a scope',
+    //         $dummyHandler,
+    //         ['gce_prefix' => $prefix, 'gce_lifetime' => $lifetime],
+    //         $mockCache->reveal()
+    //     );
 
-        $mockCache = $this->prophesize('Psr\Cache\CacheItemPoolInterface');
-        $mockCache->getItem($prefix . 'google_auth_on_gce_cache')
-            ->shouldBeCalledTimes(2)
-            ->willReturn($mockCacheItem->reveal());
-        $mockCache->save($mockCacheItem->reveal())
-            ->shouldBeCalled();
+    //     $this->assertTrue($gceIsCalled);
+    // }
 
-        $creds = ApplicationDefaultCredentials::getMiddleware(
-            'a scope',
-            $dummyHandler,
-            ['gce_prefix' => $prefix, 'gce_lifetime' => $lifetime],
-            $mockCache->reveal()
-        );
+    // /**
+    //  * @expectedException DomainException
+    //  */
+    // public function testIsFailsEnvSpecifiesNonExistentFile()
+    // {
+    //     putenv('HOME');
+    //     $keyFile = __DIR__ . '/fixtures' . '/does-not-exist-private.json';
+    //     putenv('GOOGLE_APPLICATION_CREDENTIALS=' . $keyFile);
+    //     GoogleAuth::getIdTokenCredentials(self::TEST_TARGET_AUDIENCE);
+    // }
 
-        $this->assertTrue($gceIsCalled);
-    }
+    // public function testLoadsOKIfEnvSpecifiedIsValid()
+    // {
+    //     putenv('HOME');
+    //     $keyFile = __DIR__ . '/fixtures' . '/private.json';
+    //     putenv('GOOGLE_APPLICATION_CREDENTIALS=' . $keyFile);
+    //     GoogleAuth::getIdTokenCredentials(self::TEST_TARGET_AUDIENCE);
+    // }
 
-    /**
-     * @expectedException DomainException
-     * @runInSeparateProcess
-     */
-    public function testIsFailsEnvSpecifiesNonExistentFile()
-    {
-        putenv('HOME');
-        $keyFile = __DIR__ . '/fixtures' . '/does-not-exist-private.json';
-        putenv(ServiceAccountCredentials::ENV_VAR . '=' . $keyFile);
-        GoogleAuth::getIdTokenCredentials($this->targetAudience);
-    }
+    // public function testLoadsDefaultFileIfPresentAndEnvVarIsNotSet()
+    // {
+    //     putenv('HOME=' . __DIR__ . '/fixtures');
+    //     GoogleAuth::getIdTokenCredentials(self::TEST_TARGET_AUDIENCE);
+    // }
 
-    /**
-     * @runInSeparateProcess
-     */
-    public function testLoadsOKIfEnvSpecifiedIsValid()
-    {
-        putenv('HOME');
-        $keyFile = __DIR__ . '/fixtures' . '/private.json';
-        putenv(ServiceAccountCredentials::ENV_VAR . '=' . $keyFile);
-        GoogleAuth::getIdTokenCredentials($this->targetAudience);
-    }
+    // /**
+    //  * @expectedException DomainException
+    //  */
+    // public function testFailsIfNotOnGceAndNoDefaultFileFound()
+    // {
+    //     putenv('HOME=' . __DIR__ . '/not_exist_fixtures');
 
-    /**
-     * @runInSeparateProcess
-     */
-    public function testLoadsDefaultFileIfPresentAndEnvVarIsNotSet()
-    {
-        putenv('HOME=' . __DIR__ . '/fixtures');
-        putenv(ServiceAccountCredentials::ENV_VAR);
-        GoogleAuth::getIdTokenCredentials($this->targetAudience);
-    }
+    //     // simulate not being GCE and retry attempts by returning multiple 500s
+    //     $httpHandler = getHandler([
+    //         buildResponse(500),
+    //         buildResponse(500),
+    //         buildResponse(500)
+    //     ]);
 
-    /**
-     * @expectedException DomainException
-     */
-    public function testFailsIfNotOnGceAndNoDefaultFileFound()
-    {
-        putenv('HOME=' . __DIR__ . '/not_exist_fixtures');
-        putenv(ServiceAccountCredentials::ENV_VAR);
+    //     GoogleAuth::getIdTokenCredentials(
+    //         self::TEST_TARGET_AUDIENCE,
+    //         $httpHandler
+    //     );
+    // }
 
-        // simulate not being GCE and retry attempts by returning multiple 500s
-        $httpHandler = getHandler([
-            buildResponse(500),
-            buildResponse(500),
-            buildResponse(500)
-        ]);
+    // public function testWithCacheOptions()
+    // {
+    //     putenv('HOME');
+    //     $keyFile = __DIR__ . '/fixtures' . '/private.json';
+    //     putenv('GOOGLE_APPLICATION_CREDENTIALS=' . $keyFile);
 
-        GoogleAuth::getIdTokenCredentials(
-            $this->targetAudience,
-            $httpHandler
-        );
-    }
+    //     $httpHandler = getHandler([
+    //         buildResponse(200),
+    //     ]);
 
-    public function testWithCacheOptions()
-    {
-        putenv('HOME');
-        $keyFile = __DIR__ . '/fixtures' . '/private.json';
-        putenv(ServiceAccountCredentials::ENV_VAR . '=' . $keyFile);
+    //     $cacheOptions = [];
+    //     $cachePool = $this->prophesize('Psr\Cache\CacheItemPoolInterface');
 
-        $httpHandler = getHandler([
-            buildResponse(200),
-        ]);
+    //     $credentials = GoogleAuth::getIdTokenCredentials(
+    //         self::TEST_TARGET_AUDIENCE,
+    //         $httpHandler,
+    //         $cacheOptions,
+    //         $cachePool->reveal()
+    //     );
 
-        $cacheOptions = [];
-        $cachePool = $this->prophesize('Psr\Cache\CacheItemPoolInterface');
+    //     $this->assertInstanceOf('Google\Auth\FetchAuthTokenCache', $credentials);
+    // }
 
-        $credentials = GoogleAuth::getIdTokenCredentials(
-            $this->targetAudience,
-            $httpHandler,
-            $cacheOptions,
-            $cachePool->reveal()
-        );
+    // public function testIdTokenIfNoDefaultFilesButIsOnCompute()
+    // {
+    //     putenv('HOME=' . __DIR__ . '/not_exist_fixtures');
+    //     $wantedTokens = [
+    //         'access_token' => '1/abdef1234567890',
+    //         'expires_in' => '57',
+    //         'token_type' => 'Bearer',
+    //     ];
+    //     $jsonTokens = json_encode($wantedTokens);
 
-        $this->assertInstanceOf('Google\Auth\FetchAuthTokenCache', $credentials);
-    }
+    //     // simulate the response from GCE.
+    //     $httpHandler = getHandler([
+    //         buildResponse(200, ['Metadata-Flavor' => 'Google']),
+    //         buildResponse(200, [], Psr7\stream_for($jsonTokens)),
+    //     ]);
 
-    public function testIdTokenIfNoDefaultFilesButIsOnCompute()
-    {
-        putenv('HOME=' . __DIR__ . '/not_exist_fixtures');
-        $wantedTokens = [
-            'access_token' => '1/abdef1234567890',
-            'expires_in' => '57',
-            'token_type' => 'Bearer',
-        ];
-        $jsonTokens = json_encode($wantedTokens);
+    //     $credentials = GoogleAuth::getIdTokenCredentials(
+    //         self::TEST_TARGET_AUDIENCE,
+    //         $httpHandler
+    //     );
 
-        // simulate the response from GCE.
-        $httpHandler = getHandler([
-            buildResponse(200, [ComputeCredentials::FLAVOR_HEADER => 'Google']),
-            buildResponse(200, [], Psr7\stream_for($jsonTokens)),
-        ]);
-
-        $credentials = GoogleAuth::getIdTokenCredentials(
-            $this->targetAudience,
-            $httpHandler
-        );
-
-        $this->assertInstanceOf(
-            'Google\Auth\Credentials\ComputeCredentials',
-            $credentials
-        );
-    }
-}
-
-class ADCGetCredentialsWithQuotaProjectTest extends TestCase
-{
-    private $originalHome;
-    private $quotaProject = 'a-quota-project';
-
-    protected function setUp(): void
-    {
-        $this->originalHome = getenv('HOME');
-    }
-
-    protected function tearDown(): void
-    {
-        if ($this->originalHome != getenv('HOME')) {
-            putenv('HOME=' . $this->originalHome);
-        }
-        putenv(ServiceAccountCredentials::ENV_VAR);  // removes environment variable
-    }
+    //     $this->assertInstanceOf(
+    //         'Google\Auth\Credentials\ComputeCredentials',
+    //         $credentials
+    //     );
+    // }
 
     public function testWithServiceAccountCredentialsAndExplicitQuotaProject()
     {
         $keyFile = __DIR__ . '/fixtures' . '/private.json';
-        putenv(ServiceAccountCredentials::ENV_VAR . '=' . $keyFile);
+        putenv('GOOGLE_APPLICATION_CREDENTIALS=' . $keyFile);
 
         $credentials = GoogleAuth::getCredentials(
             null,
             null,
             null,
             null,
-            $this->quotaProject
+            self::TEST_QUOTA_PROJECT
         );
 
         $this->assertInstanceOf(
@@ -737,7 +680,7 @@ class ADCGetCredentialsWithQuotaProjectTest extends TestCase
         );
 
         $this->assertEquals(
-            $this->quotaProject,
+            self::TEST_QUOTA_PROJECT,
             $credentials->getQuotaProject()
         );
     }
@@ -745,7 +688,7 @@ class ADCGetCredentialsWithQuotaProjectTest extends TestCase
     public function testGetCredentialsUtilizesQuotaProjectInKeyFile()
     {
         $keyFile = __DIR__ . '/fixtures' . '/private.json';
-        putenv(ServiceAccountCredentials::ENV_VAR . '=' . $keyFile);
+        putenv('GOOGLE_APPLICATION_CREDENTIALS=' . $keyFile);
 
         $credentials = ApplicationDefaultCredentials::getCredentials();
 
@@ -758,7 +701,7 @@ class ADCGetCredentialsWithQuotaProjectTest extends TestCase
     public function testWithFetchAuthTokenCacheAndExplicitQuotaProject()
     {
         $keyFile = __DIR__ . '/fixtures' . '/private.json';
-        putenv(ServiceAccountCredentials::ENV_VAR . '=' . $keyFile);
+        putenv('GOOGLE_APPLICATION_CREDENTIALS=' . $keyFile);
 
         $httpHandler = getHandler([
             buildResponse(200),
@@ -772,13 +715,13 @@ class ADCGetCredentialsWithQuotaProjectTest extends TestCase
             $httpHandler,
             $cacheOptions,
             $cachePool->reveal(),
-            $this->quotaProject
+            self::TEST_QUOTA_PROJECT
         );
 
         $this->assertInstanceOf('Google\Auth\FetchAuthTokenCache', $credentials);
 
         $this->assertEquals(
-            $this->quotaProject,
+            self::TEST_QUOTA_PROJECT,
             $credentials->getQuotaProject()
         );
     }
@@ -795,7 +738,7 @@ class ADCGetCredentialsWithQuotaProjectTest extends TestCase
 
         // simulate the response from GCE.
         $httpHandler = getHandler([
-            buildResponse(200, [ComputeCredentials::FLAVOR_HEADER => 'Google']),
+            buildResponse(200, ['Metadata-Flavor' => 'Google']),
             buildResponse(200, [], Psr7\stream_for($jsonTokens)),
         ]);
 
@@ -804,7 +747,7 @@ class ADCGetCredentialsWithQuotaProjectTest extends TestCase
             $httpHandler,
             null,
             null,
-            $this->quotaProject
+            self::TEST_QUOTA_PROJECT
         );
 
         $this->assertInstanceOf(
@@ -813,40 +756,13 @@ class ADCGetCredentialsWithQuotaProjectTest extends TestCase
         );
 
         $this->assertEquals(
-            $this->quotaProject,
+            self::TEST_QUOTA_PROJECT,
             $credentials->getQuotaProject()
         );
     }
-}
 
-class ADCGetCredentialsAppEngineTest extends BaseTest
-{
-    private $originalHome;
-    private $originalServiceAccount;
-    private $targetAudience = 'a target audience';
+    // START ADCGetCredentialsAppEngineTest
 
-    protected function setUp(): void
-    {
-        // set home to be somewhere else
-        $this->originalHome = getenv('HOME');
-        putenv('HOME=' . __DIR__ . '/not_exist_fixtures');
-
-        // remove service account path
-        $this->originalServiceAccount = getenv(ServiceAccountCredentials::ENV_VAR);
-        putenv(ServiceAccountCredentials::ENV_VAR);
-    }
-
-    protected function tearDown(): void
-    {
-        // removes it if assigned
-        putenv('HOME=' . $this->originalHome);
-        putenv(ServiceAccountCredentials::ENV_VAR . '=' . $this->originalServiceAccount);
-        putenv('GAE_INSTANCE');
-    }
-
-    /**
-     * @runInSeparateProcess
-     */
     public function testAppEngineStandard()
     {
         $_SERVER['SERVER_SOFTWARE'] = 'Google App Engine';
@@ -856,15 +772,12 @@ class ADCGetCredentialsAppEngineTest extends BaseTest
         );
     }
 
-    /**
-     * @runInSeparateProcess
-     */
     public function testAppEngineFlexible()
     {
         $_SERVER['SERVER_SOFTWARE'] = 'Google App Engine';
         putenv('GAE_INSTANCE=aef-default-20180313t154438');
         $httpHandler = getHandler([
-            buildResponse(200, [ComputeCredentials::FLAVOR_HEADER => 'Google']),
+            buildResponse(200, ['Metadata-Flavor' => 'Google']),
         ]);
         $this->assertInstanceOf(
             'Google\Auth\Credentials\ComputeCredentials',
@@ -872,18 +785,15 @@ class ADCGetCredentialsAppEngineTest extends BaseTest
         );
     }
 
-    /**
-     * @runInSeparateProcess
-     */
     public function testAppEngineFlexibleIdToken()
     {
         $_SERVER['SERVER_SOFTWARE'] = 'Google App Engine';
         putenv('GAE_INSTANCE=aef-default-20180313t154438');
         $httpHandler = getHandler([
-            buildResponse(200, [ComputeCredentials::FLAVOR_HEADER => 'Google']),
+            buildResponse(200, ['Metadata-Flavor' => 'Google']),
         ]);
         $creds = GoogleAuth::getIdTokenCredentials(
-            $this->targetAudience,
+            self::TEST_TARGET_AUDIENCE,
             $httpHandler
         );
         $this->assertInstanceOf(
@@ -891,35 +801,8 @@ class ADCGetCredentialsAppEngineTest extends BaseTest
             $creds
         );
     }
-}
 
-
-/**
- * @group access-token
- */
-class GoogleAuthFetchCertsTest extends TestCase
-{
-    private $cache;
-    private $payload;
-
-    private $token;
-    private $publicKey;
-    private $allowedAlgs;
-
-    public function setUp(): void
-    {
-        $this->cache = $this->prophesize('Psr\Cache\CacheItemPoolInterface');
-        $this->jwt = $this->prophesize('Firebase\JWT\JWT');
-        $this->token = 'foobar';
-        $this->publicKey = 'barfoo';
-
-        $this->payload = [
-            'iat' => time(),
-            'exp' => time() + 30,
-            'name' => 'foo',
-            'iss' => AccessToken::OAUTH2_ISSUER_HTTPS
-        ];
-    }
+    // START GoogleAuthFetchCertsTest
 
     public function testGetCertsForIap()
     {
@@ -953,36 +836,40 @@ class GoogleAuthFetchCertsTest extends TestCase
         $item->expiresAfter(Argument::type('int'))
             ->shouldBeCalledTimes(1);
 
-        $this->cache->getItem('google_auth_certs_cache|' . sha1($certsLocation))
+        $this->mockCache->getItem('google_auth_certs_cache|' . sha1($certsLocation))
             ->shouldBeCalledTimes(1)
             ->willReturn($item->reveal());
 
-        $this->cache->save(Argument::type('Psr\Cache\CacheItemInterface'))
+        $this->mockCache->save(Argument::type('Psr\Cache\CacheItemInterface'))
             ->shouldBeCalledTimes(1);
 
         $token = new GoogleAuth(
             null,
-            $this->cache->reveal()
+            $this->mockCache->reveal()
         );
 
         $token->mocks['decode'] = function ($token, $publicKey, $allowedAlgs) {
-            $this->assertEquals($this->token, $token);
+            $this->assertEquals(self::TEST_TOKEN, $token);
             $this->assertEquals(['RS256'], $allowedAlgs);
 
-            return (object) $this->payload;
+            return (object) [
+                'iat' => time(),
+                'exp' => time() + 30,
+                'name' => 'foo',
+                'iss' => AccessToken::OAUTH2_ISSUER_HTTPS
+            ];;
         };
 
-        $token->verify($this->token, [
+        $token->verify(self::TEST_TOKEN, [
             'certsLocation' => $certsLocation
         ]);
     }
 
-    /**
-     * @expectedException InvalidArgumentException
-     * @expectedExceptionMessage Failed to retrieve verification certificates from path
-     */
     public function testRetrieveCertsFromLocationLocalFileInvalidFilePath()
     {
+        $this->expectException('InvalidArgumentException');
+        $this->expectExceptionMessage('Failed to retrieve verification certificates from path');
+
         $certsLocation = __DIR__ . '/fixtures/federated-certs-does-not-exist.json';
 
         $item = $this->prophesize('Psr\Cache\CacheItemInterface');
@@ -990,49 +877,46 @@ class GoogleAuthFetchCertsTest extends TestCase
             ->shouldBeCalledTimes(1)
             ->willReturn(null);
 
-        $this->cache->getItem('google_auth_certs_cache|' . sha1($certsLocation))
+        $this->mockCache->getItem('google_auth_certs_cache|' . sha1($certsLocation))
             ->shouldBeCalledTimes(1)
             ->willReturn($item->reveal());
 
         $token = new GoogleAuth(
             null,
-            $this->cache->reveal()
+            $this->mockCache->reveal()
         );
 
-        $token->verify($this->token, [
+        $token->verify(self::TEST_TOKEN, [
             'certsLocation' => $certsLocation
         ]);
     }
 
-    /**
-     * @expectedException InvalidArgumentException
-     * @expectedExceptionMessage federated sign-on certs expects "keys" to be set
-     */
     public function testRetrieveCertsInvalidData()
     {
+        $this->expectException('InvalidArgumentException');
+        $this->expectExceptionMessage('federated sign-on certs expects "keys" to be set');
+
         $item = $this->prophesize('Psr\Cache\CacheItemInterface');
         $item->get()
             ->shouldBeCalledTimes(1)
             ->willReturn('{}');
 
-        $this->cache->getItem('google_auth_certs_cache|federated_signon_certs_v3')
+        $this->mockCache->getItem('google_auth_certs_cache|federated_signon_certs_v3')
             ->shouldBeCalledTimes(1)
             ->willReturn($item->reveal());
 
         $token = new GoogleAuth(
             null,
-            $this->cache->reveal()
+            $this->mockCache->reveal()
         );
 
-        $token->verify($this->token);
+        $token->verify(self::TEST_TOKEN);
     }
 
-    /**
-     * @expectedException InvalidArgumentException
-     * @expectedExceptionMessage federated sign-on certs expects "keys" to be set
-     */
     public function testRetrieveCertsFromLocationLocalFileInvalidFileData()
     {
+         $this->expectException('InvalidArgumentException');
+         $this->expectExceptionMessage('federated sign-on certs expects "keys" to be set');
         $temp = tmpfile();
         fwrite($temp, '{}');
         $certsLocation = stream_get_meta_data($temp)['uri'];
@@ -1042,16 +926,16 @@ class GoogleAuthFetchCertsTest extends TestCase
             ->shouldBeCalledTimes(1)
             ->willReturn(null);
 
-        $this->cache->getItem('google_auth_certs_cache|' . sha1($certsLocation))
+        $this->mockCache->getItem('google_auth_certs_cache|' . sha1($certsLocation))
             ->shouldBeCalledTimes(1)
             ->willReturn($item->reveal());
 
         $token = new GoogleAuth(
             null,
-            $this->cache->reveal()
+            $this->mockCache->reveal()
         );
 
-        $token->verify($this->token, [
+        $token->verify(self::TEST_TOKEN, [
             'certsLocation' => $certsLocation
         ]);
     }
@@ -1078,59 +962,63 @@ class GoogleAuthFetchCertsTest extends TestCase
         $item->expiresAt(Argument::type('\DateTime'))
             ->shouldBeCalledTimes(1);
 
-        $this->cache->getItem('google_auth_certs_cache|federated_signon_certs_v3')
+        $this->mockCache->getItem('google_auth_certs_cache|federated_signon_certs_v3')
             ->shouldBeCalledTimes(1)
             ->willReturn($item->reveal());
 
-        $this->cache->save(Argument::type('Psr\Cache\CacheItemInterface'))
+        $this->mockCache->save(Argument::type('Psr\Cache\CacheItemInterface'))
             ->shouldBeCalledTimes(1);
 
         $token = new GoogleAuth(
             $httpHandler,
-            $this->cache->reveal()
+            $this->mockCache->reveal()
         );
 
         $token->mocks['decode'] = function ($token, $publicKey, $allowedAlgs) {
-            $this->assertEquals($this->token, $token);
+            $this->assertEquals(self::TEST_TOKEN, $token);
             $this->assertEquals(['RS256'], $allowedAlgs);
 
-            return (object) $this->payload;
+            return (object) [
+                'iat' => time(),
+                'exp' => time() + 30,
+                'name' => 'foo',
+                'iss' => AccessToken::OAUTH2_ISSUER_HTTPS
+            ];;
         };
 
-        $token->verify($this->token);
+        $token->verify(self::TEST_TOKEN);
     }
 
-    /**
-     * @expectedException RuntimeException
-     * @expectedExceptionMessage bad news guys
-     */
     public function testRetrieveCertsFromLocationRemoteBadRequest()
     {
+        $this->expectException('RuntimeException');
+        $this->expectExceptionMessage('bad news guys');
+
         $badBody = 'bad news guys';
 
-        $httpHandler = function (RequestInterface $request) use ($badBody) {
+        $httpClient = createHttpClient(function ($request) use ($badBody) {
             return new Response(500, [], $badBody);
-        };
+        });
 
         $item = $this->prophesize('Psr\Cache\CacheItemInterface');
         $item->get()
             ->shouldBeCalledTimes(1)
             ->willReturn(null);
 
-        $this->cache->getItem('google_auth_certs_cache|federated_signon_certs_v3')
+        $this->mockCache->getItem('google_auth_certs_cache|federated_signon_certs_v3')
             ->shouldBeCalledTimes(1)
             ->willReturn($item->reveal());
 
-        $token = new GoogleAuth(
-            $httpHandler,
-            $this->cache->reveal()
-        );
+        $token = new GoogleAuth([
+            'httpClient' => $httpClient,
+            'cache' => $this->mockCache->reveal()
+        ]);
 
-        $token->verify($this->token);
+        $token->verify(self::TEST_TOKEN);
     }
 
     /**
-     * @dataProvider revokeTokens
+     * @dataProvider provideRevoke
      */
     public function testRevoke($input, $expected)
     {
@@ -1149,20 +1037,18 @@ class GoogleAuthFetchCertsTest extends TestCase
         $this->assertTrue($token->revoke($input));
     }
 
-    public function revokeTokens()
+    public function provideRevoke()
     {
-        $this->setUp();
-
         return [
             [
-                $this->token,
-                $this->token
+                self::TEST_TOKEN,
+                self::TEST_TOKEN
             ], [
-                ['refresh_token' => $this->token, 'access_token' => 'other thing'],
-                $this->token
+                ['refresh_token' => self::TEST_TOKEN, 'access_token' => 'other thing'],
+                self::TEST_TOKEN
             ], [
-                ['access_token' => $this->token],
-                $this->token
+                ['access_token' => self::TEST_TOKEN],
+                self::TEST_TOKEN
             ]
         ];
     }
@@ -1175,6 +1061,6 @@ class GoogleAuthFetchCertsTest extends TestCase
 
         $token = new GoogleAuth($httpHandler);
 
-        $this->assertFalse($token->revoke($this->token));
+        $this->assertFalse($token->revoke(self::TEST_TOKEN));
     }
 }
