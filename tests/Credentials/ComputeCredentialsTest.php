@@ -367,12 +367,7 @@ class ComputeCredentialsTest extends BaseTest
 
         HttpClientCache::setHttpClient($client->reveal());
 
-<<<<<<< HEAD
-        $creds = new GCECredentials;
-=======
-
         $creds = new ComputeCredentials;
->>>>>>> bff78665 (WIP)
         $this->assertNull($creds->getProjectId());
     }
 

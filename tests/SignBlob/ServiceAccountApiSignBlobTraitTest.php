@@ -17,7 +17,7 @@
 
 namespace Google\Auth\Tests;
 
-use Google\Auth\ServiceAccountSignerTrait;
+use Google\Auth\SignBlob\ServiceAccountApiSignBlobTrait;
 use PHPUnit\Framework\TestCase;
 
 class ServiceAccountSignerTraitTest extends TestCase
@@ -30,29 +30,21 @@ class ServiceAccountSignerTraitTest extends TestCase
         'UCyxkaPdB6eRczMXwJReu6q4LCJmx/Xr46kU/ZDNhrBkj6vjoD8yo='
     ];
 
-    /**
-     * @dataProvider useOpenSsl
-     */
-    public function testSignBlob($useOpenSsl)
+    public function testSignBlob()
     {
         $trait = new ServiceAccountSignerTraitImpl(
-            file_get_contents(__DIR__ . '/fixtures/private.pem')
+            file_get_contents(__DIR__ . '/../fixtures/private.pem')
         );
 
-        $res = $trait->signBlob(self::STRING_TO_SIGN, $useOpenSsl);
+        $res = $trait->signBlob(self::STRING_TO_SIGN);
 
         $this->assertEquals(implode('', $this->signedString), $res);
-    }
-
-    public function useOpenSsl()
-    {
-        return [[true], [false]];
     }
 }
 
 class ServiceAccountSignerTraitImpl
 {
-    use ServiceAccountSignerTrait;
+    use ServiceAccountApiSignBlobTrait;
 
     private $auth;
 
@@ -60,6 +52,11 @@ class ServiceAccountSignerTraitImpl
     {
         $this->auth = new AuthStub;
         $this->auth->signingKey = $signingKey;
+    }
+
+    public function signBlob($stringToSign)
+    {
+        return $this->signBlobWithServiceAccountApi($string);
     }
 }
 

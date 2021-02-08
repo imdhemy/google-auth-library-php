@@ -322,3 +322,13 @@ class SACJWTGetProjectIdTest extends TestCase
         $this->assertEquals($testJson['project_id'], $sa->getProjectId());
     }
 }
+
+class SACJWTGetQuotaProjectTest extends TestCase
+{
+    public function testGetQuotaProject()
+    {
+        $keyFile = __DIR__ . '/../fixtures' . '/private.json';
+        $sa = new ServiceAccountJwtAccessCredentials($keyFile);
+        $this->assertEquals('test_quota_project', $sa->getQuotaProject());
+    }
+}
