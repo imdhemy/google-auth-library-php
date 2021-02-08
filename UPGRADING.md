@@ -324,7 +324,7 @@ Consistent with <a href="https://github.com/googleapis/google-auth-library-nodej
   <tr>
    <td><code>ServiceAccountSignerTrait</code>
 <p>
-   => <code>SignBlob\SericeAccountApiSignBlobTrait</code>
+   => <code>SignBlob\PrivateKeySignBlobTrait</code>
    </td>
    <td>More explicit.
 <p>

@@ -17,10 +17,10 @@
 
 namespace Google\Auth\Tests;
 
-use Google\Auth\SignBlob\ServiceAccountApiSignBlobTrait;
+use Google\Auth\SignBlob\PrivateKeySignBlobTrait;
 use PHPUnit\Framework\TestCase;
 
-class ServiceAccountSignerTraitTest extends TestCase
+class PrivateKeySignBlobTraitTest extends TestCase
 {
     private const STRING_TO_SIGN = 'hello world';
 
@@ -32,7 +32,7 @@ class ServiceAccountSignerTraitTest extends TestCase
 
     public function testSignBlob()
     {
-        $trait = new ServiceAccountSignerTraitImpl(
+        $trait = new PrivateKeySignBlobTraitImpl(
             file_get_contents(__DIR__ . '/../fixtures/private.pem')
         );
 
@@ -42,30 +42,19 @@ class ServiceAccountSignerTraitTest extends TestCase
     }
 }
 
-class ServiceAccountSignerTraitImpl
+class PrivateKeySignBlobTraitImpl
 {
-    use ServiceAccountApiSignBlobTrait;
+    use PrivateKeySignBlobTrait;
 
-    private $auth;
+    private $signingKey;
 
     public function __construct($signingKey)
     {
-        $this->auth = new AuthStub;
-        $this->auth->signingKey = $signingKey;
+        $this->signingKey = $signingKey;
     }
 
     public function signBlob($stringToSign)
     {
-        return $this->signBlobWithServiceAccountApi($string);
-    }
-}
-
-class AuthStub
-{
-    public $signingKey;
-
-    public function getSigningKey()
-    {
-        return $this->signingKey;
+        return $this->signBlobWithPrivateKey($stringToSign, $this->signingKey);
     }
 }

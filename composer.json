@@ -24,9 +24,6 @@
     "phpseclib/phpseclib": "^2",
     "kelvinmo/simplejwt": "^0.2.5|^0.5.1"
   },
-  "suggest": {
-    "phpseclib/phpseclib": "May be used in place of OpenSSL for signing strings or for token management. Please require version ^2."
-  },
   "autoload": {
     "psr-4": {
       "Google\\Auth\\": "src/Auth",
