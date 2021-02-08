@@ -78,6 +78,8 @@ class GoogleAuth
     private const WELL_KNOWN_PATH = 'gcloud/application_default_credentials.json';
     private const NON_WINDOWS_WELL_KNOWN_PATH_BASE = '.config';
 
+    private const ON_COMPUTE_CACHE_KEY = 'google_auth_on_gce_cache';
+
     private $httpClient;
     private $cache;
     private $cacheLifetime;
@@ -226,6 +228,12 @@ class GoogleAuth
      */
     public function onCompute(): bool
     {
+        $cacheItem = $this->cache->getItem(self::GCE_CACHE_KEY);
+
+        if ($cacheItem->isHit()) {
+            return $cacheItem->get();
+        }
+
         /**
          * Note: the explicit `timeout` and `tries` below is a workaround. The underlying
          * issue is that resolving an unknown host on some networks will take
@@ -236,6 +244,7 @@ class GoogleAuth
          * This allows us to limit the total ping maximum timeout to 1.5 seconds
          * for developer desktop scenarios.
          */
+        $onCompute = false;
         $maxComputePingTries = 3;
         $computePingConnectionTimeoutSeconds = 0.5;
         $checkUri = 'http://' . ComputeCredentials::METADATA_IP;
@@ -258,13 +267,19 @@ class GoogleAuth
                     ['timeout' => $computePingConnectionTimeoutSeconds]
                 );
 
-                return $resp->getHeaderLine(self::FLAVOR_HEADER) == 'Google';
+                $onCompute = $resp->getHeaderLine(self::FLAVOR_HEADER) == 'Google';
+                break;
             } catch (ClientException $e) {
             } catch (ServerException $e) {
             } catch (RequestException $e) {
             }
         }
-        return false;
+
+        $cacheItem->set($onCompute);
+        $cacheItem->expiresAfter($this->cacheLifetime);
+        $this->cache->save($cacheItem);
+
+        return $onCompute;
     }
 
     /**
@@ -304,7 +319,7 @@ class GoogleAuth
         // Push caching off until after verifying certs are in a valid format.
         // Don't want to cache bad data.
         if ($gotNewCerts) {
-            $cacheItem->expiresAt(new DateTime('+1 hour'));
+            $cacheItem->expiresAfter($this->cacheLifetime);
             $cacheItem->set($certs);
             $this->cache->save($cacheItem);
         }

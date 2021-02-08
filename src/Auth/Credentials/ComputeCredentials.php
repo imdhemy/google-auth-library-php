@@ -218,54 +218,6 @@ class ComputeCredentials implements
     }
 
     /**
-     * The full uri for accessing the default service account.
-     *
-     * @param string $serviceAccountIdentity [optional] Specify a service
-     *   account identity name to use instead of "default".
-     * @return string
-     */
-
-    public static function getClientEmailUri(
-        string $serviceAccountIdentity = null
-    ): string {
-        $base = 'http://' . self::METADATA_IP . '/computeMetadata/';
-        $base .= self::CLIENT_EMAIL_URI_PATH;
-
-        if ($serviceAccountIdentity) {
-            return str_replace(
-                '/default/',
-                '/' . $serviceAccountIdentity . '/',
-                $base
-            );
-        }
-
-        return $base;
-    }
-
-    /**
-     * The full uri for accesesing the default identity token.
-     *
-     * @param string $serviceAccountIdentity [optional] Specify a service
-     *   account identity name to use instead of "default".
-     * @return string
-     */
-    private static function getIdTokenUri($serviceAccountIdentity = null): string
-    {
-        $base = 'http://' . self::METADATA_IP . '/computeMetadata/';
-        $base .= self::ID_TOKEN_URI_PATH;
-        if ($serviceAccountIdentity) {
-            return str_replace(
-                '/default/',
-                '/' . $serviceAccountIdentity . '/',
-                $base
-            );
-        }
-
-        return $base;
-
-    }
-
-    /**
      * Determines if this an App Engine Flexible instance, by accessing the
      * GAE_INSTANCE environment variable.
      *
@@ -283,7 +235,7 @@ class ComputeCredentials implements
      * @param ClientInterface $httpClient
      * @return bool
      */
-    public static function onGce(ClientInterface $httpClient): bool
+    public static function onGce(): bool
     {
         $checkUri = 'http://' . self::METADATA_IP;
         for ($i = 1; $i <= self::MAX_COMPUTE_PING_TRIES; $i++) {
@@ -296,7 +248,7 @@ class ComputeCredentials implements
                 // could lead to false negatives in the event that we are on GCE, but
                 // the metadata resolution was particularly slow. The latter case is
                 // "unlikely".
-                $resp = $httpClient->send(
+                $resp = $this->httpClient->send(
                     new Request(
                         'GET',
                         $checkUri,
@@ -334,16 +286,13 @@ class ComputeCredentials implements
      *
      * @throws \Exception
      */
-    public function fetchAuthToken(ClientInterface $httpClient = null): array
+    public function fetchAuthToken(): array
     {
-        if (!$this->isOnGce($httpClient)) {
+        if (!$this->isOnGce($this->httpClient)) {
             return [];  // return an empty array with no access token
         }
 
-        $response = $this->getFromMetadata(
-            $httpClient ?: $this->httpClient,
-            $this->tokenUri
-        );
+        $response = $this->getFromMetadata($this->tokenUri);
 
         if ($this->targetAudience) {
             return ['id_token' => $response];
@@ -366,21 +315,19 @@ class ComputeCredentials implements
      *
      * Subsequent calls will return a cached value.
      *
-     * @param ClientInterface $httpClient callback which delivers psr7 request
      * @return string
      */
-    private function getClientEmail(ClientInterface $httpClient = null): string
+    public function getClientEmail(): string
     {
         if ($this->clientEmail) {
             return $this->clientEmail;
         }
 
-        if (!$this->isOnGce($httpClient)) {
+        if (!$this->isOnGce($this->httpClient)) {
             return '';
         }
 
         return $this->clientEmail = $this->getFromMetadata(
-            $httpClient ?: $this->httpClient,
             self::getClientEmailUri($this->serviceAccountIdentity)
         );
     }
@@ -395,7 +342,7 @@ class ComputeCredentials implements
      * @param string $stringToSign The string to sign.
      * @return string
      */
-    public function signBlob($stringToSign)
+    public function signBlob(string $stringToSign): string
     {
         $accessToken = $this->fetchAuthToken()['access_token'];
 
@@ -412,21 +359,19 @@ class ComputeCredentials implements
      *
      * Returns null if called outside GCE.
      *
-     * @param ClientInterface $httpClient Callback which delivers psr7 request
      * @return string|null
      */
-    public function getProjectId(ClientInterface $httpClient = null): ?string
+    public function getProjectId(): ?string
     {
         if ($this->projectId) {
             return $this->projectId;
         }
 
-        if (!$this->isOnGce($httpClient)) {
+        if (!$this->isOnGce($this->httpClient)) {
             return null;
         }
 
         return $this->projectId = $this->getFromMetadata(
-            $httpClient ?: $this->httpClient,
             self::getProjectIdUri()
         );
     }
@@ -441,10 +386,10 @@ class ComputeCredentials implements
         return $this->quotaProject;
     }
 
-    private function isOnGce($httpClient = null): bool
+    private function isOnGce(): bool
     {
         if (!$this->hasCheckedOnGce) {
-            $this->isOnGce = self::onGce($httpClient ?: $this->httpClient);
+            $this->isOnGce = self::onGce($this->httpClient);
             $this->hasCheckedOnGce = true;
         }
 
@@ -454,12 +399,12 @@ class ComputeCredentials implements
     /**
      * Fetch the value of a GCE metadata server URI.
      *
-     * @param ClientInterface $httpClient An HTTP Handler to deliver PSR7 requests.
      * @param string $uri The metadata URI.
      * @return string
      */
-    private function getFromMetadata(ClientInterface $httpClient, $uri)
+    private function getFromMetadata($uri)
     {
+        $httpClient = $this->httpClient;
         $resp = $httpClient(
             new Request(
                 'GET',
@@ -481,5 +426,53 @@ class ComputeCredentials implements
         $base = 'http://' . self::METADATA_IP . '/computeMetadata/';
 
         return $base . self::PROJECT_ID_URI_PATH;
+    }
+
+    /**
+     * The full uri for accessing the default service account.
+     *
+     * @param string $serviceAccountIdentity [optional] Specify a service
+     *   account identity name to use instead of "default".
+     * @return string
+     */
+
+    private static function getClientEmailUri(
+        string $serviceAccountIdentity = null
+    ): string {
+        $base = 'http://' . self::METADATA_IP . '/computeMetadata/';
+        $base .= self::CLIENT_EMAIL_URI_PATH;
+
+        if ($serviceAccountIdentity) {
+            return str_replace(
+                '/default/',
+                '/' . $serviceAccountIdentity . '/',
+                $base
+            );
+        }
+
+        return $base;
+    }
+
+    /**
+     * The full uri for accesesing the default identity token.
+     *
+     * @param string $serviceAccountIdentity [optional] Specify a service
+     *   account identity name to use instead of "default".
+     * @return string
+     */
+    private static function getIdTokenUri($serviceAccountIdentity = null): string
+    {
+        $base = 'http://' . self::METADATA_IP . '/computeMetadata/';
+        $base .= self::ID_TOKEN_URI_PATH;
+        if ($serviceAccountIdentity) {
+            return str_replace(
+                '/default/',
+                '/' . $serviceAccountIdentity . '/',
+                $base
+            );
+        }
+
+        return $base;
+
     }
 }
