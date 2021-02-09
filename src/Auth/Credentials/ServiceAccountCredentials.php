@@ -62,7 +62,9 @@ class ServiceAccountCredentials implements
     CredentialsInterface,
     SignBlobInterface
 {
-    use CredentialsTrait;
+    use CredentialsTrait {
+        CredentialsTrait::getRequestMetadata as traitGetRequestMetadata;
+    }
     use PrivateKeySignBlobTrait;
     use ServiceAccountApiSignBlobTrait;
 
@@ -170,11 +172,7 @@ class ServiceAccountCredentials implements
      */
     public function fetchAuthToken(): array
     {
-        // If self-signed JWTs are being used, fetch the last received token
-        // from memory. Else, fetch it from OAuth2
-        return $this->useSelfSignedJwt()
-            ? $this->lastReceivedJwtAccessToken
-            : $this->oauth2->getLastReceivedToken();
+        return $this->oauth2->fetchAuthToken();
     }
 
     /**
@@ -190,31 +188,27 @@ class ServiceAccountCredentials implements
     }
 
     /**
-     * Updates metadata with the authorization token.
+     * Returns request metadata with the authorization token.
      *
-     * @param array $metadata metadata hashmap
-     * @param string $authUri optional auth uri
      * @param callable $httpHandler callback which delivers psr7 request
-     * @return array updated metadata hashmap
+     * @return array metadata hashmap for request headers
      */
-    public function updateMetadata(
-        $metadata,
-        $authUri = null,
-        callable $httpHandler = null
-    ) {
+    public function getRequestMetadata(
+        ClientInterface $httpHandler = null
+    ): array {
         // scope exists. use oauth implementation
         if (!$this->useSelfSignedJwt()) {
-            return parent::updateMetadata($metadata, $authUri, $httpHandler);
+            return $this->traitGetRequestMetadata($httpHandler);
         }
 
         // no scope found. create jwt with the auth uri
         $credJson = array(
-            'private_key' => $this->auth->getSigningKey(),
-            'client_email' => $this->auth->getIssuer(),
+            'private_key' => $this->oauth2->getSigningKey(),
+            'client_email' => $this->oauth2->getIssuer(),
         );
         $jwtCreds = new ServiceAccountJwtAccessCredentials($credJson);
 
-        $updatedMetadata = $jwtCreds->updateMetadata($metadata, $authUri, $httpHandler);
+        $updatedMetadata = $jwtCreds->getRequestMetadata($httpHandler);
 
         if ($lastReceivedToken = $jwtCreds->getLastReceivedToken()) {
             // Keep self-signed JWTs in memory as the last received token
@@ -230,7 +224,7 @@ class ServiceAccountCredentials implements
      */
     public function setSub($sub)
     {
-        $this->auth->setSub($sub);
+        $this->oauth2->setSub($sub);
     }
 
     /**
@@ -274,7 +268,7 @@ class ServiceAccountCredentials implements
 
     private function useSelfSignedJwt()
     {
-        return is_null($this->auth->getScope());
+        return is_null($this->oauth2->getScope());
     }
 
     /**

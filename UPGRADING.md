@@ -305,8 +305,6 @@ A trait is a better fit as it's a utility class.
    <td><code>Credentials\GCECredentials</code>
 <p>
    => <code>Credentials\ComputeCredentials</code>
-<p>
-   => <code>Credentials\MetadataCredentials</code>
    </td>
    <td>"Compute" represents a suite of products (App Engine, Compute Engine, Cloud Functions, Cloud Run) which all have a metadata server, and so use these credentials.
 <p>
@@ -635,6 +633,18 @@ Proper caching should make this unnecessary
    <td><strong>not needed</strong>
 <p>
 Proper caching should make this unnecessary
+   </td>
+  </tr>
+  <tr>
+  <td><code>GCECredentials</code>
+<p>
+<code>:: getTokenUri</code>
+<p>
+<code>:: getClientNameUri</code>
+   </td>
+   <td><strong>not needed</strong>
+<p>
+The URIs used to call the metadata server is implementation detail, and does not need to be public
    </td>
   </tr>
   <tr>

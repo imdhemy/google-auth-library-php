@@ -321,7 +321,7 @@ class OAuth2
      *
      * @param array $config Configuration array
      */
-    public function __construct(array $config)
+    public function __construct(array $config = [])
     {
         $opts = array_merge([
             'credentialsFile' => null,
@@ -331,6 +331,7 @@ class OAuth2
             'authorizationUri' => null,
             'redirectUri' => null,
             'tokenCredentialUri' => null,
+            'tokenRevokeUri' => null,
             'state' => null,
             'username' => null,
             'password' => null,
@@ -853,7 +854,7 @@ class OAuth2
      */
     public function buildFullAuthorizationUri(array $config = [])
     {
-        if (is_null($this->getAuthorizationUri())) {
+        if (empty($this->getAuthorizationUri())) {
             throw new InvalidArgumentException(
                 'requires an authorizationUri to have been set'
             );
@@ -901,25 +902,25 @@ class OAuth2
     }
 
     /**
+     * Gets the authorization server's HTTP endpoint capable of authenticating
+     * the end-user and obtaining authorization.
+     *
+     * @return string
+     */
+    public function getAuthorizationUri(): ?string
+    {
+        return (string) $this->authorizationUri;
+    }
+
+    /**
      * Sets the authorization server's HTTP endpoint capable of authenticating
      * the end-user and obtaining authorization.
      *
      * @param string $uri
      */
-    public function setAuthorizationUri(string $uri): void
+    public function setAuthorizationUri(?string $uri): void
     {
         $this->authorizationUri = $this->coerceUri($uri);
-    }
-
-    /**
-     * Gets the authorization server's HTTP endpoint capable of authenticating
-     * the end-user and obtaining authorization.
-     *
-     * @return UriInterface
-     */
-    public function getAuthorizationUri(): UriInterface
-    {
-        return $this->authorizationUri;
     }
 
     /**
@@ -930,7 +931,7 @@ class OAuth2
      */
     public function getTokenCredentialUri(): ?string
     {
-        return $this->tokenCredentialUri;
+        return (string) $this->tokenCredentialUri;
     }
 
     /**
@@ -952,7 +953,7 @@ class OAuth2
      */
     public function getTokenRevokeUri(): ?string
     {
-        return $this->tokenRevokeUri;
+        return (string) $this->tokenRevokeUri;
     }
 
     /**
@@ -961,7 +962,7 @@ class OAuth2
      *
      * @param string $uri
      */
-    public function setTokenCredentialUri(?string $uri): void
+    public function setTokenRevokeUri(?string $uri): void
     {
         $this->tokenRevokeUri = $this->coerceUri($uri);
     }
@@ -973,7 +974,7 @@ class OAuth2
      */
     public function getRedirectUri(): ?string
     {
-        return $this->redirectUri;
+        return (string) $this->redirectUri;
     }
 
     /**

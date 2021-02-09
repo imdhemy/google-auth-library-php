@@ -90,21 +90,6 @@ class ComputeCredentials implements
     private const FLAVOR_HEADER = 'Metadata-Flavor';
 
     /**
-     * Flag used to ensure that the onGCE test is only done once;.
-     *
-     * @var bool
-     */
-    private $hasCheckedOnGce = false;
-
-    /**
-     * Flag that stores the value of the onGCE check.
-     *
-     * @var bool
-     */
-    private $isOnGce = false;
-
-
-    /**
      * @var string|null
      */
     private $clientEmail;
@@ -168,15 +153,7 @@ class ComputeCredentials implements
             );
         }
 
-        $tokenUri = self::getTokenUri($options['serviceAccountIdentity']);
-        if ($options['scope']) {
-            if (is_string($options['scope'])) {
-                $options['scope'] = explode(' ', $options['scope']);
-            }
-
-            $options['scope'] = implode(',', $options['scope']);
-            $tokenUri = $tokenUri . '?scopes='. $options['scope'];
-        } elseif ($options['targetAudience']) {
+        if ($options['targetAudience']) {
             $tokenUri = self::getIdTokenUri($options['serviceAccountIdentity']);
             $tokenUri = sprintf(
                 'http://%s/computeMetadata/%s?audience=%s',
@@ -185,6 +162,16 @@ class ComputeCredentials implements
                 $options['targetAudience']
             );
             $this->targetAudience = $options['targetAudience'];
+        } else {
+            $tokenUri = self::getAccessTokenUri($options['serviceAccountIdentity']);
+            if ($options['scope']) {
+                if (is_string($options['scope'])) {
+                    $options['scope'] = explode(' ', $options['scope']);
+                }
+
+                $options['scope'] = implode(',', $options['scope']);
+                $tokenUri = $tokenUri . '?scopes='. $options['scope'];
+            }
         }
 
         $this->tokenUri = $tokenUri;
@@ -202,7 +189,7 @@ class ComputeCredentials implements
      * @return string
      */
 
-    public static function getTokenUri(
+    private static function getAccessTokenUri(
         string $serviceAccountIdentity = null
     ): string {
         $base = 'http://' . self::METADATA_IP . '/computeMetadata/';
@@ -301,10 +288,6 @@ class ComputeCredentials implements
      */
     public function fetchAuthToken(): array
     {
-        if (!$this->isOnGce($this->httpClient)) {
-            return [];  // return an empty array with no access token
-        }
-
         $response = $this->getFromMetadata($this->tokenUri);
 
         if ($this->targetAudience) {
@@ -334,10 +317,6 @@ class ComputeCredentials implements
     {
         if ($this->clientEmail) {
             return $this->clientEmail;
-        }
-
-        if (!$this->isOnGce($this->httpClient)) {
-            return '';
         }
 
         return $this->clientEmail = $this->getFromMetadata(
@@ -380,10 +359,6 @@ class ComputeCredentials implements
             return $this->projectId;
         }
 
-        if (!$this->isOnGce($this->httpClient)) {
-            return null;
-        }
-
         return $this->projectId = $this->getFromMetadata(
             self::getProjectIdUri()
         );
@@ -399,16 +374,6 @@ class ComputeCredentials implements
         return $this->quotaProject;
     }
 
-    private function isOnGce(): bool
-    {
-        if (!$this->hasCheckedOnGce) {
-            $this->isOnGce = self::onGce($this->httpClient);
-            $this->hasCheckedOnGce = true;
-        }
-
-        return $this->isOnGce;
-    }
-
     /**
      * Fetch the value of a GCE metadata server URI.
      *
@@ -417,8 +382,7 @@ class ComputeCredentials implements
      */
     private function getFromMetadata($uri)
     {
-        $httpClient = $this->httpClient;
-        $resp = $httpClient(
+        $resp = $this->httpClient->send(
             new Request(
                 'GET',
                 $uri,

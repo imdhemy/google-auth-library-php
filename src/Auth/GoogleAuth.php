@@ -24,11 +24,13 @@ use Google\Auth\Credentials\ComputeCredentials;
 use Google\Auth\Credentials\ServiceAccountCredentials;
 use Google\Auth\Credentials\ServiceAccountJwtAccessCredentials;
 use Google\Auth\Credentials\CredentialsInterface;
+use Google\Auth\Credentials\UserRefreshCredentials;
 use Google\Auth\Http\ClientFactory;
 use Google\Cache\MemoryCacheItemPool;
 use GuzzleHttp\Psr7\Request;
 use InvalidArgumentException;
 use Psr\Cache\CacheItemPoolInterface;
+use RuntimeException;
 
 /**
  * GoogleAuth obtains the default credentials for
@@ -110,10 +112,9 @@ class GoogleAuth
             'cacheLifetime' => 1500,
             'cachePrefix' => '',
         ];
-
         $this->httpClient = $options['httpClient'] ?: ClientFactory::build();
         $this->cache = $options['cache'] ?: new MemoryCacheItemPool();
-        $this->cacheLifetme = $options['cacheLifetime'];
+        $this->cacheLifetime = $options['cacheLifetime'];
         $this->cachePrefix = $options['cachePrefix'];
     }
 
@@ -131,8 +132,11 @@ class GoogleAuth
      *      @type string $targetAudience The audience for the ID token.
      *      @type string $audience
      *      @type string $quotaProject specifies a project to bill for access
-     *        charges associated with the request.
+     *             charges associated with the request.
      *      @type string $subject
+     *      @type string|array $defaultScope The default scope to use if no
+     *             user-defined scopes exist, expressed either as an Array or as
+     *             a space-delimited string.
      * }
      * @return CredentialsInterface
      * @throws DomainException if no implementation can be obtained.
@@ -146,7 +150,9 @@ class GoogleAuth
             'quotaProject' => null,
             'subject' => null,
             'credentialsFile' => null,
+            'defaultScope' => null,
         ];
+        $anyScope = $options['scope'] ?: $options['defaultScope'];
         if (is_null($options['credentialsFile'])) {
             $jsonKey = $this->fromEnv() ?: $this->fromWellKnownFile();
         } else {
@@ -165,7 +171,7 @@ class GoogleAuth
 
             // Set quota project on jsonKey if passed in
             if (isset($options['quotaProject'])) {
-                $jsonKey['quota_project'] = $options['quotaProject'];
+                $jsonKey['quota_project_id'] = $options['quotaProject'];
             }
 
             switch ($jsonKey['type']) {
@@ -194,7 +200,8 @@ class GoogleAuth
                         );
                     }
                     $creds = new UserRefreshCredentials($jsonKey, [
-                        'scope' => $options['scope'],
+                        'scope' => $anyScope,
+                        'httpClient' => $this->httpClient,
                     ]);
                     break;
                 default:
@@ -204,9 +211,10 @@ class GoogleAuth
             }
         } elseif ($this->onCompute()) {
             $creds = new ComputeCredentials([
-                'scope' => $options['scope'],
+                'scope' => $anyScope,
                 'quotaProject' => $options['quotaProject'],
                 'httpClient' => $this->httpClient,
+                'targetAudience' => $options['targetAudience'],
             ]);
         }
 
@@ -229,14 +237,15 @@ class GoogleAuth
      */
     public function onCompute(): bool
     {
-        $cacheItem = $this->cache->getItem(self::ON_COMPUTE_CACHE_KEY);
+        $cacheItem = $this->cache->getItem(
+            $this->cachePrefix . self::ON_COMPUTE_CACHE_KEY
+        );
 
         if ($cacheItem->isHit()) {
             return $cacheItem->get();
         }
 
         $onCompute = ComputeCredentials::onCompute($this->httpClient);
-
         $cacheItem->set($onCompute);
         $cacheItem->expiresAfter($this->cacheLifetime);
         $this->cache->save($cacheItem);
@@ -283,13 +292,13 @@ class GoogleAuth
 
         $gotNewCerts = false;
         if (!$certs) {
-            $certs = $this->retrieveCertsFromLocation($location, $options);
+            $certs = $this->retrieveCertsFromLocation($location);
 
             $gotNewCerts = true;
         }
 
         if (!isset($certs['keys'])) {
-            if ($location !== self::IAP_CERT_URL) {
+            if ($location !== self::IAP_JWK_URI) {
                 throw new InvalidArgumentException(
                     'federated sign-on certs expects "keys" to be set'
                 );
@@ -353,7 +362,7 @@ class GoogleAuth
      */
     private function getCacheKeyFromCertLocation($certsLocation)
     {
-        $key = $certsLocation === self::FEDERATED_SIGNON_CERT_URL
+        $key = $certsLocation === self::OIDC_CERT_URI
             ? 'federated_signon_certs_v3'
             : sha1($certsLocation);
 

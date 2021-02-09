@@ -24,39 +24,17 @@ use Google\Http\ClientInterface;
 use Psr\Http\Message\RequestInterface;
 use Psr\Http\Message\ResponseInterface;
 
-function buildResponse($code, array $headers = [], $body = null)
+function httpClientWithResponses(array $mockResponses = [])
 {
-    if (class_exists('GuzzleHttp\HandlerStack')) {
-        return new \GuzzleHttp\Psr7\Response($code, $headers, $body);
-    }
+    $mock = new \GuzzleHttp\Handler\MockHandler($mockResponses);
 
-    return new \GuzzleHttp\Message\Response(
-        $code,
-        $headers,
-        \GuzzleHttp\Stream\Stream::factory((string)$body)
-    );
+    $handler = \GuzzleHttp\HandlerStack::create($mock);
+    $client = new \GuzzleHttp\Client(['handler' => $handler]);
+
+    return new \Google\Http\Client\GuzzleClient($client);
 }
 
-function getHandler(array $mockResponses = [])
-{
-    if (class_exists('GuzzleHttp\HandlerStack')) {
-        $mock = new \GuzzleHttp\Handler\MockHandler($mockResponses);
-
-        $handler = \GuzzleHttp\HandlerStack::create($mock);
-        $client = new \GuzzleHttp\Client(['handler' => $handler]);
-
-        return new \Google\Auth\HttpHandler\Guzzle6HttpHandler($client);
-    }
-
-    $client = new \GuzzleHttp\Client();
-    $client->getEmitter()->attach(
-        new \GuzzleHttp\Subscriber\Mock($mockResponses)
-    );
-
-    return new \Google\Auth\HttpHandler\Guzzle5HttpHandler($client);
-}
-
-function createHttpClient(callable $httpHandler): ClientInterface
+function httpClientFromCallable(callable $httpHandler): ClientInterface
 {
     return new HttpClientImpl($httpHandler);
 }
