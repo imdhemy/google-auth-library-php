@@ -60,11 +60,8 @@ class GoogleAuthTest extends BaseTest
             ->willReturn($this->mockCacheItem->reveal());
 
         // Run the test.
-        $googleAuth = new GoogleAuth(
-            null,
-            $this->mockCache->reveal()
-        );
-        $this->assertTrue($googleAuth->onGce());
+        $googleAuth = new GoogleAuth(['cache' => $this->mockCache->reveal()]);
+        $this->assertTrue($googleAuth->onCompute());
     }
 
     public function testCachedOnGceFalseValue()
@@ -81,11 +78,8 @@ class GoogleAuthTest extends BaseTest
             ->willReturn($this->mockCacheItem->reveal());
 
         // Run the test.
-        $googleAuth = new GoogleAuth(
-            null,
-            $this->mockCache->reveal()
-        );
-        $this->assertFalse($googleAuth->onGce());
+        $googleAuth = new GoogleAuth(['cache' => $this->mockCache->reveal()]);
+        $this->assertFalse($googleAuth->onCompute());
     }
 
     public function testUncached()
@@ -110,10 +104,7 @@ class GoogleAuthTest extends BaseTest
             ->shouldBeCalledTimes(1);
 
         // Run the test.
-        $googleAuth = new GoogleAuth(
-            null,
-            $this->mockCache->reveal()
-        );
+        $googleAuth = new GoogleAuth(['cache' => $this->mockCache->reveal()]);
 
         $this->assertTrue($googleAuth->onCompute($dummyHandler));
         $this->assertTrue($gceIsCalled);
@@ -134,11 +125,12 @@ class GoogleAuthTest extends BaseTest
             ->willReturn($this->mockCacheItem->reveal());
 
         // Run the test
-        $gceCache = new GCECache(
-            ['prefix' => $prefix, 'lifetime' => $lifetime],
-            $this->mockCache->reveal()
-        );
-        $this->assertTrue($gceCache->onCompute());
+        $googleAuth = new GoogleAuth([
+            'cachePrefix' => $prefix,
+            'cacheLifetime' => $lifetime,
+            'cache' => $this->mockCache->reveal(),
+        ]);
+        $this->assertTrue($googleAuth->onCompute());
     }
 
     public function testShouldSaveValueInCacheWithCacheOptions()
@@ -163,12 +155,14 @@ class GoogleAuthTest extends BaseTest
             ->shouldBeCalled();
 
         // Run the test
-        $gceCache = new GCECache(
-            ['prefix' => $prefix, 'lifetime' => $lifetime],
-            $this->mockCache->reveal()
-        );
-        $onGce = $gceCache->onGce($dummyHandler);
-        $this->assertTrue($onGce);
+        $googleAuth = new GoogleAuth([
+            'cachePrefix' => $prefix,
+            'cacheLifetime' => $lifetime,
+            'cache' => $this->mockCache->reveal(),
+            'httpClient' => createHttpClient($dummyHandler),
+        ]);
+        $onCompute = $googleAuth->onCompute();
+        $this->assertTrue($onCompute);
         $this->assertTrue($gceIsCalled);
     }
 
@@ -180,7 +174,7 @@ class GoogleAuthTest extends BaseTest
         putenv('HOME');
         $keyFile = __DIR__ . '/fixtures' . '/does-not-exist-private.json';
         putenv('GOOGLE_APPLICATION_CREDENTIALS=' . $keyFile);
-        GoogleAuth::getCredentials('a scope');
+        (new GoogleAuth())->makeCredentials(['scope' => 'a scope']);
     }
 
     public function testLoadsOKIfEnvSpecifiedIsValid()
@@ -189,7 +183,7 @@ class GoogleAuthTest extends BaseTest
         $keyFile = __DIR__ . '/fixtures' . '/private.json';
         putenv('GOOGLE_APPLICATION_CREDENTIALS=' . $keyFile);
         $this->assertNotNull(
-            GoogleAuth::getCredentials('a scope')
+            (new GoogleAuth())->makeCredentials(['scope' => 'a scope'])
         );
     }
 
@@ -197,7 +191,7 @@ class GoogleAuthTest extends BaseTest
     {
         putenv('HOME=' . __DIR__ . '/fixtures');
         $this->assertNotNull(
-            GoogleAuth::getCredentials('a scope')
+            (new GoogleAuth())->makeCredentials(['scope' => 'a scope'])
         );
     }
 
@@ -213,8 +207,10 @@ class GoogleAuthTest extends BaseTest
             buildResponse(500),
             buildResponse(500)
         ]);
-
-        GoogleAuth::getCredentials('a scope', $httpHandler);
+        $googleAuth = new GoogleAuth([
+            'httpClient' => createHttpClient($httpHandler),
+        ]);
+        $googleAuth->makeCredentials(['scope' => 'a scope']);
     }
 
     public function testSuccedsIfNoDefaultFilesButIsOnCompute()
@@ -233,9 +229,11 @@ class GoogleAuthTest extends BaseTest
             buildResponse(200, ['Metadata-Flavor' => 'Google']),
             buildResponse(200, [], Psr7\stream_for($jsonTokens)),
         ]);
-
+        $googleAuth = new GoogleAuth([
+            'httpClient' => createHttpClient($httpHandler),
+        ]);
         $this->assertNotNull(
-            GoogleAuth::getCredentials('a scope', $httpHandler)
+            $googleAuth->makeCredentials(['scope' => 'a scope'])
         );
     }
 
@@ -244,18 +242,16 @@ class GoogleAuthTest extends BaseTest
         putenv('HOME');
 
         $jsonTokens = json_encode(['access_token' => 'abc']);
-
-        $creds = GoogleAuth::getCredentials(
-            null, // $scope
-            $httpHandler = getHandler([
-                buildResponse(200, ['Metadata-Flavor' => 'Google']),
-                buildResponse(200, [], Psr7\stream_for($jsonTokens)),
-            ]), // $httpHandler
-            null, // $cacheConfig
-            null, // $cache
-            null, // $quotaProject
-            'a+default+scope' // $defaultScope
-        );
+        $httpHandler = getHandler([
+            buildResponse(200, [GCECredentials::FLAVOR_HEADER => 'Google']),
+            buildResponse(200, [], Psr7\stream_for($jsonTokens)),
+        ]);
+        $googleAuth = new GoogleAuth([
+            'httpClient' => createHttpClient($httpHandler),
+        ]);
+        $creds = $googleAuth->makeCredentials([
+            'defaultScope' => 'a+default+scope' // $defaultScope
+        ]);
 
         $this->assertInstanceOf(
             'Google\Auth\Credentials\GCECredentials',
@@ -269,17 +265,10 @@ class GoogleAuthTest extends BaseTest
         $tokenUri = $uriProperty->getValue($creds);
         $this->assertContains('a+default+scope', $tokenUri);
 
-        $creds = ApplicationDefaultCredentials::getCredentials(
-            'a+user+scope', // $scope
-            getHandler([
-                buildResponse(200, [GCECredentials::FLAVOR_HEADER => 'Google']),
-                buildResponse(200, [], Psr7\stream_for($jsonTokens)),
-            ]), // $httpHandler
-            null, // $cacheConfig
-            null, // $cache
-            null, // $quotaProject
-            'a+default+scope' // $defaultScope
-        );
+        $creds = $googleAuth->makeCredentials([
+            'scope' => 'a+user+scope', // $scope
+            'defaultScope' => 'a+default+scope' // $defaultScope
+        ]);
 
         // did not use default scope
         $tokenUri = $uriProperty->getValue($creds);
@@ -290,14 +279,10 @@ class GoogleAuthTest extends BaseTest
     {
         putenv('HOME=' . __DIR__ . '/fixtures2');
 
-        $creds = ApplicationDefaultCredentials::getCredentials(
-            null, // $scope
-            null, // $httpHandler
-            null, // $cacheConfig
-            null, // $cache
-            null, // $quotaProject
-            'a default scope' // $defaultScope
-        );
+        $googleAuth = new GoogleAuth();
+        $creds = $googleAuth->makeCredentials([
+            'defaultScope' => 'a default scope',
+        ]);
 
         $this->assertInstanceOf(
             'Google\Auth\Credentials\UserRefreshCredentials',
@@ -311,14 +296,10 @@ class GoogleAuthTest extends BaseTest
         $auth = $authProperty->getValue($creds);
         $this->assertEquals('a default scope', $auth->getScope());
 
-        $creds = ApplicationDefaultCredentials::getCredentials(
-            'a user scope', // $scope
-            null, // $httpHandler
-            null, // $cacheConfig
-            null, // $cache
-            null, // $quotaProject
-            'a default scope' // $defaultScope
-        );
+        $creds = $googleAuth->makeCredentials([
+            'scope' => 'a user scope',
+            'defaultScope' => 'a default scope',
+        ]);
 
         // did not use default scope
         $auth = $authProperty->getValue($creds);
@@ -329,14 +310,10 @@ class GoogleAuthTest extends BaseTest
     {
         putenv('HOME=' . __DIR__ . '/fixtures');
 
-        $creds = ApplicationDefaultCredentials::getCredentials(
-            null, // $scope
-            null, // $httpHandler
-            null, // $cacheConfig
-            null, // $cache
-            null, // $quotaProject
-            'a default scope' // $defaultScope
-        );
+        $googleAuth = new GoogleAuth();
+        $creds = $googleAuth->makeCredentials([
+            'defaultScope' => 'a default scope',
+        ]);
 
         $this->assertInstanceOf(
             'Google\Auth\Credentials\ServiceAccountCredentials',
@@ -350,14 +327,10 @@ class GoogleAuthTest extends BaseTest
         $auth = $authProperty->getValue($creds);
         $this->assertEquals('', $auth->getScope());
 
-        $creds = ApplicationDefaultCredentials::getCredentials(
-            'a user scope', // $scope
-            null, // $httpHandler
-            null, // $cacheConfig
-            null, // $cache
-            null, // $quotaProject
-            'a default scope' // $defaultScope
-        );
+        $creds = $googleAuth->makeCredentials([
+            'scope' => 'a user scope',
+            'defaultScope' => 'a default scope',
+        ]);
 
         // used user scope
         $auth = $authProperty->getValue($creds);
@@ -368,14 +341,9 @@ class GoogleAuthTest extends BaseTest
     {
         putenv('HOME=' . __DIR__ . '/fixtures2');
 
-        $creds = ApplicationDefaultCredentials::getCredentials(
-            null, // $scope
-            null, // $httpHandler
-            null, // $cacheConfig
-            null, // $cache
-            null, // $quotaProject
-            ['onescope', 'twoscope'] // $defaultScope
-        );
+        $creds = (new GoogleAuth())->makeCredentials([
+            'defaultScope' => ['onescope', 'twoscope'] // $defaultScope
+        ]);
 
         $authProperty = (new ReflectionClass($creds))->getProperty('auth');
         $authProperty->setAccessible(true);
@@ -666,13 +634,9 @@ class GoogleAuthTest extends BaseTest
         $keyFile = __DIR__ . '/fixtures' . '/private.json';
         putenv('GOOGLE_APPLICATION_CREDENTIALS=' . $keyFile);
 
-        $credentials = GoogleAuth::getCredentials(
-            null,
-            null,
-            null,
-            null,
-            self::TEST_QUOTA_PROJECT
-        );
+        $credentials = (new GoogleAuth())->makeCredentials([
+            'quotaProject' => self::TEST_QUOTA_PROJECT
+        ]);
 
         $this->assertInstanceOf(
             'Google\Auth\Credentials\ServiceAccountCredentials',
@@ -690,7 +654,7 @@ class GoogleAuthTest extends BaseTest
         $keyFile = __DIR__ . '/fixtures' . '/private.json';
         putenv('GOOGLE_APPLICATION_CREDENTIALS=' . $keyFile);
 
-        $credentials = ApplicationDefaultCredentials::getCredentials();
+        $credentials = (new GoogleAuth())->makeCredentials();
 
         $this->assertEquals(
             'test_quota_project',
@@ -707,16 +671,16 @@ class GoogleAuthTest extends BaseTest
             buildResponse(200),
         ]);
 
-        $cacheOptions = [];
         $cachePool = $this->prophesize('Psr\Cache\CacheItemPoolInterface');
 
-        $credentials = GoogleAuth::getCredentials(
-            null,
-            $httpHandler,
-            $cacheOptions,
-            $cachePool->reveal(),
-            self::TEST_QUOTA_PROJECT
-        );
+        $googleAuth = new GoogleAuth([
+            'cache' => $cachePool->reveal(),
+            'httpClient' => createHttpClient($httpHandler),
+        ]);
+
+        $credentials = $googleAuth->makeCredentials([
+            'quotaProject' => self::TEST_QUOTA_PROJECT
+        ]);
 
         $this->assertInstanceOf('Google\Auth\FetchAuthTokenCache', $credentials);
 
@@ -742,13 +706,12 @@ class GoogleAuthTest extends BaseTest
             buildResponse(200, [], Psr7\stream_for($jsonTokens)),
         ]);
 
-        $credentials = GoogleAuth::getCredentials(
-            null,
-            $httpHandler,
-            null,
-            null,
-            self::TEST_QUOTA_PROJECT
-        );
+        $googleAuth = new GoogleAuth([
+            'httpClient' => createHttpClient($httpHandler),
+        ]);
+        $credentials = $googleAuth->makeCredentials([
+            'quotaProject' => self::TEST_QUOTA_PROJECT,
+        ]);
 
         $this->assertInstanceOf(
             'Google\Auth\Credentials\ComputeCredentials',
@@ -768,7 +731,7 @@ class GoogleAuthTest extends BaseTest
         $_SERVER['SERVER_SOFTWARE'] = 'Google App Engine';
         $this->assertInstanceOf(
             'Google\Auth\Credentials\AppIdentityCredentials',
-            GoogleAuth::getCredentials()
+            (new GoogleAuth())->makeCredentials()
         );
     }
 
@@ -779,9 +742,12 @@ class GoogleAuthTest extends BaseTest
         $httpHandler = getHandler([
             buildResponse(200, ['Metadata-Flavor' => 'Google']),
         ]);
+        $googleAuth = new GoogleAuth([
+            'httpClient' => createHttpClient($httpHandler)
+        ]);
         $this->assertInstanceOf(
             'Google\Auth\Credentials\ComputeCredentials',
-            GoogleAuth::getCredentials(null, $httpHandler)
+            $googleAuth->makeCredentials()
         );
     }
 
@@ -806,15 +772,15 @@ class GoogleAuthTest extends BaseTest
 
     public function testGetCertsForIap()
     {
-        $token = new GoogleAuth();
-        $reflector = new \ReflectionObject($token);
+        $googleAuth = new GoogleAuth();
+        $reflector = new \ReflectionObject($googleAuth);
         $cacheKeyMethod = $reflector->getMethod('getCacheKeyFromCertLocation');
         $cacheKeyMethod->setAccessible(true);
         $getCertsMethod = $reflector->getMethod('getCerts');
         $getCertsMethod->setAccessible(true);
-        $cacheKey = $cacheKeyMethod->invoke($token, GoogleAuth::IAP_CERT_URL);
+        $cacheKey = $cacheKeyMethod->invoke($googleAuth, GoogleAuth::IAP_CERT_URL);
         $certs = $getCertsMethod->invoke(
-            $token,
+            $googleAuth,
             GoogleAuth::IAP_CERT_URL,
             $cacheKey
         );
@@ -843,13 +809,10 @@ class GoogleAuthTest extends BaseTest
         $this->mockCache->save(Argument::type('Psr\Cache\CacheItemInterface'))
             ->shouldBeCalledTimes(1);
 
-        $token = new GoogleAuth(
-            null,
-            $this->mockCache->reveal()
-        );
+        $googleAuth = new GoogleAuth(['cache' => $this->mockCache->reveal()]);
 
-        $token->mocks['decode'] = function ($token, $publicKey, $allowedAlgs) {
-            $this->assertEquals(self::TEST_TOKEN, $token);
+        $googleAuth->mocks['decode'] = function ($googleAuth, $publicKey, $allowedAlgs) {
+            $this->assertEquals(self::TEST_TOKEN, $googleAuth);
             $this->assertEquals(['RS256'], $allowedAlgs);
 
             return (object) [
@@ -860,7 +823,7 @@ class GoogleAuthTest extends BaseTest
             ];;
         };
 
-        $token->verify(self::TEST_TOKEN, [
+        $googleAuth->verify(self::TEST_TOKEN, [
             'certsLocation' => $certsLocation
         ]);
     }
@@ -881,12 +844,9 @@ class GoogleAuthTest extends BaseTest
             ->shouldBeCalledTimes(1)
             ->willReturn($item->reveal());
 
-        $token = new GoogleAuth(
-            null,
-            $this->mockCache->reveal()
-        );
+        $googleAuth = new GoogleAuth(['cache' => $this->mockCache->reveal()]);
 
-        $token->verify(self::TEST_TOKEN, [
+        $googleAuth->verify(self::TEST_TOKEN, [
             'certsLocation' => $certsLocation
         ]);
     }
@@ -905,12 +865,9 @@ class GoogleAuthTest extends BaseTest
             ->shouldBeCalledTimes(1)
             ->willReturn($item->reveal());
 
-        $token = new GoogleAuth(
-            null,
-            $this->mockCache->reveal()
-        );
+        $googleAuth = new GoogleAuth(['cache' => $this->mockCache->reveal()]);
 
-        $token->verify(self::TEST_TOKEN);
+        $googleAuth->verify(self::TEST_TOKEN);
     }
 
     public function testRetrieveCertsFromLocationLocalFileInvalidFileData()
@@ -930,12 +887,9 @@ class GoogleAuthTest extends BaseTest
             ->shouldBeCalledTimes(1)
             ->willReturn($item->reveal());
 
-        $token = new GoogleAuth(
-            null,
-            $this->mockCache->reveal()
-        );
+        $googleAuth = new GoogleAuth(['cache' => $this->mockCache->reveal()]);
 
-        $token->verify(self::TEST_TOKEN, [
+        $googleAuth->verify(self::TEST_TOKEN, [
             'certsLocation' => $certsLocation
         ]);
     }
@@ -969,13 +923,13 @@ class GoogleAuthTest extends BaseTest
         $this->mockCache->save(Argument::type('Psr\Cache\CacheItemInterface'))
             ->shouldBeCalledTimes(1);
 
-        $token = new GoogleAuth(
-            $httpHandler,
-            $this->mockCache->reveal()
-        );
+        $googleAuth = new GoogleAuth([
+            'httpClient' => createHttpClient($httpHandler),
+            'cache' => $this->mockCache->reveal(),
+        ]);
 
-        $token->mocks['decode'] = function ($token, $publicKey, $allowedAlgs) {
-            $this->assertEquals(self::TEST_TOKEN, $token);
+        $googleAuth->mocks['decode'] = function ($googleAuth, $publicKey, $allowedAlgs) {
+            $this->assertEquals(self::TEST_TOKEN, $googleAuth);
             $this->assertEquals(['RS256'], $allowedAlgs);
 
             return (object) [
@@ -986,7 +940,7 @@ class GoogleAuthTest extends BaseTest
             ];;
         };
 
-        $token->verify(self::TEST_TOKEN);
+        $googleAuth->verify(self::TEST_TOKEN);
     }
 
     public function testRetrieveCertsFromLocationRemoteBadRequest()
@@ -996,9 +950,9 @@ class GoogleAuthTest extends BaseTest
 
         $badBody = 'bad news guys';
 
-        $httpClient = createHttpClient(function ($request) use ($badBody) {
+        $httpHandler = function ($request) use ($badBody) {
             return new Response(500, [], $badBody);
-        });
+        };
 
         $item = $this->prophesize('Psr\Cache\CacheItemInterface');
         $item->get()
@@ -1009,58 +963,11 @@ class GoogleAuthTest extends BaseTest
             ->shouldBeCalledTimes(1)
             ->willReturn($item->reveal());
 
-        $token = new GoogleAuth([
-            'httpClient' => $httpClient,
+        $googleAuth = new GoogleAuth([
+            'httpClient' => createHttpClient($httpHandler),
             'cache' => $this->mockCache->reveal()
         ]);
 
-        $token->verify(self::TEST_TOKEN);
-    }
-
-    /**
-     * @dataProvider provideRevoke
-     */
-    public function testRevoke($input, $expected)
-    {
-        $httpHandler = function (RequestInterface $request) use ($expected) {
-            $this->assertEquals('no-store', $request->getHeaderLine('Cache-Control'));
-            $this->assertEquals('application/x-www-form-urlencoded', $request->getHeaderLine('Content-Type'));
-            $this->assertEquals('POST', $request->getMethod());
-            $this->assertEquals(GoogleAuth::OAUTH2_REVOKE_URI, (string) $request->getUri());
-            $this->assertEquals('token=' . $expected, (string) $request->getBody());
-
-            return new Response(200);
-        };
-
-        $token = new GoogleAuth($httpHandler);
-
-        $this->assertTrue($token->revoke($input));
-    }
-
-    public function provideRevoke()
-    {
-        return [
-            [
-                self::TEST_TOKEN,
-                self::TEST_TOKEN
-            ], [
-                ['refresh_token' => self::TEST_TOKEN, 'access_token' => 'other thing'],
-                self::TEST_TOKEN
-            ], [
-                ['access_token' => self::TEST_TOKEN],
-                self::TEST_TOKEN
-            ]
-        ];
-    }
-
-    public function testRevokeFails()
-    {
-        $httpHandler = function (RequestInterface $request) {
-            return new Response(500);
-        };
-
-        $token = new GoogleAuth($httpHandler);
-
-        $this->assertFalse($token->revoke(self::TEST_TOKEN));
+        $googleAuth->verify(self::TEST_TOKEN);
     }
 }

@@ -272,6 +272,10 @@ class OAuth2
      *   The authorization server's HTTP endpoint capable of issuing
      *   tokens and refreshing expired tokens.
      *
+     * - tokenRevokeUri
+     *   The authorization server's HTTP endpoint capable of revoking access
+     *   tokens.
+     *
      * - clientId
      *   A unique identifier issued to the client to identify itself to the
      *   authorization server.
@@ -367,6 +371,7 @@ class OAuth2
         $this->setAuthorizationUri($opts['authorizationUri']);
         $this->setRedirectUri($opts['redirectUri']);
         $this->setTokenCredentialUri($opts['tokenCredentialUri']);
+        $this->setTokenRevokeUri($opts['tokenRevokeUri']);
         $this->setState($opts['state']);
         $this->setUsername($opts['username']);
         $this->setPassword($opts['password']);
@@ -626,17 +631,12 @@ class OAuth2
      * accepted.  By default, the id token must have been issued to this OAuth2 client.
      *
      * @param string $token The JSON Web Token to be verified.
+     * @param array $certs Certificate array according to the JWK spec (see
+     *        https://tools.ietf.org/html/rfc7517).
      * @param array $options [optional] Configuration options.
      * @param string $options.audience The indended recipient of the token.
      * @param string $options.issuer The intended issuer of the token.
-     * @param string $options.certsLocation The location (remote or local) from which
-     *        to retrieve certificates, if not cached. This value should only be
-     *        provided in limited circumstances in which you are sure of the
-     *        behavior.
-     * @param bool $options.throwException Whether the function should throw an
-     *        exception if the verification fails. This is useful for
-     *        determining the reason verification failed.
-     * @return array|bool the token payload, if successful, or false if not.
+     * @return array the token payload.
      * @throws InvalidArgumentException If certs could not be retrieved from a local file.
      * @throws InvalidArgumentException If received certs are in an invalid format.
      * @throws InvalidArgumentException If the cert alg is not supported.
@@ -644,49 +644,31 @@ class OAuth2
      * @throws UnexpectedValueException If the token issuer does not match.
      * @throws UnexpectedValueException If the token audience does not match.
      */
-    public function verify($token, array $options = [])
-    {
+    public function verify(
+        string $token,
+        array $certs,
+        array $options = []
+    ): array {
         $audience = isset($options['audience'])
             ? $options['audience']
             : null;
         $issuer = isset($options['issuer'])
             ? $options['issuer']
             : null;
-        $certsLocation = isset($options['certsLocation'])
-            ? $options['certsLocation']
-            : self::FEDERATED_SIGNON_CERT_URL;
-        $throwException = isset($options['throwException'])
-            ? $options['throwException']
-            : false; // for backwards compatibility
 
         // Check signature against each available cert.
-        $certs = $this->getCerts($certsLocation, $options);
         $alg = $this->determineAlg($certs);
         if (!in_array($alg, ['RS256', 'ES256'])) {
             throw new InvalidArgumentException(
                 'unrecognized "alg" in certs, expected ES256 or RS256'
             );
         }
-        try {
-            if ($alg == 'RS256') {
-                return $this->verifyRs256($token, $certs, $audience, $issuer);
-            }
-            return $this->verifyEs256($token, $certs, $audience, $issuer);
-        } catch (ExpiredException $e) {  // firebase/php-jwt 3+
-        } catch (\ExpiredException $e) { // firebase/php-jwt 2
-        } catch (SignatureInvalidException $e) {  // firebase/php-jwt 3+
-        } catch (\SignatureInvalidException $e) { // firebase/php-jwt 2
-        } catch (InvalidTokenException $e) { // simplejwt
-        } catch (DomainException $e) {
-        } catch (InvalidArgumentException $e) {
-        } catch (UnexpectedValueException $e) {
+
+        if ($alg == 'RS256') {
+            return $this->verifyRs256($token, $certs, $audience, $issuer);
         }
 
-        if ($throwException) {
-            throw $e;
-        }
-
-        return false;
+        return $this->verifyEs256($token, $certs, $audience, $issuer);
     }
 
     /**
@@ -699,10 +681,14 @@ class OAuth2
      *        audience does not match the "aud" claim on the JWT.
      * @param string|null $issuer If set, returns false if the provided
      *        issuer does not match the "iss" claim on the JWT.
-     * @return array|bool the token payload, if successful, or false if not.
+     * @return array the token payload.
      */
-    private function verifyEs256($token, array $certs, $audience = null, $issuer = null)
-    {
+    private function verifyEs256(
+        string $token,
+        array $certs,
+        $audience = null,
+        $issuer = null
+    ): array {
         $this->checkSimpleJwt();
 
         $jwkset = new KeySet();
@@ -739,10 +725,14 @@ class OAuth2
      *        audience does not match the "aud" claim on the JWT.
      * @param string|null $issuer If set, returns false if the provided
      *        issuer does not match the "iss" claim on the JWT.
-     * @return array|bool the token payload, if successful, or false if not.
+     * @return array the token payload.
      */
-    private function verifyRs256($token, array $certs, $audience = null, $issuer = null)
-    {
+    private function verifyRs256(
+        string $token,
+        array $certs,
+        $audience = null,
+        $issuer = null
+    ) {
         $this->checkAndInitializePhpsec();
         $keys = [];
         foreach ($certs as $cert) {
@@ -800,7 +790,7 @@ class OAuth2
      *                     https://tools.ietf.org/html/rfc7517).
      * @return string The expected algorithm, such as "ES256" or "RS256".
      */
-    private function determineAlg(array $certs)
+    private function determineAlg(array $certs): string
     {
         $alg = null;
         foreach ($certs as $cert) {
@@ -825,11 +815,16 @@ class OAuth2
      * token, if a token isn't provided.
      *
      * @param string|array $token The token (access token or a refresh token) that should be revoked.
-     * @param array $options [optional] Configuration options.
      * @return bool Returns True if the revocation was successful, otherwise False.
      */
-    public function revoke($token, array $options = [])
+    public function revoke($token): bool
     {
+        if (is_null($this->getTokenRevokeUri())) {
+            throw new InvalidArgumentException(
+                'requires an tokenRevokeUri to have been set'
+            );
+        }
+
         if (is_array($token)) {
             if (isset($token['refresh_token'])) {
                 $token = $token['refresh_token'];
@@ -839,14 +834,12 @@ class OAuth2
         }
 
         $body = Psr7\stream_for(http_build_query(['token' => $token]));
-        $request = new Request('POST', self::OAUTH2_REVOKE_URI, [
+        $request = new Request('POST', $this->tokenRevokeUri, [
             'Cache-Control' => 'no-store',
             'Content-Type'  => 'application/x-www-form-urlencoded',
         ], $body);
 
-        $httpHandler = $this->httpHandler;
-
-        $response = $httpHandler($request, $options);
+        $response = $this->httpClient->send($request);
 
         return $response->getStatusCode() == 200;
     }
@@ -913,7 +906,7 @@ class OAuth2
      *
      * @param string $uri
      */
-    public function setAuthorizationUri(?string $uri): void
+    public function setAuthorizationUri(string $uri): void
     {
         $this->authorizationUri = $this->coerceUri($uri);
     }
@@ -924,7 +917,7 @@ class OAuth2
      *
      * @return UriInterface
      */
-    public function getAuthorizationUri()
+    public function getAuthorizationUri(): UriInterface
     {
         return $this->authorizationUri;
     }
@@ -935,7 +928,7 @@ class OAuth2
      *
      * @return string
      */
-    public function getTokenCredentialUri()
+    public function getTokenCredentialUri(): ?string
     {
         return $this->tokenCredentialUri;
     }
@@ -946,9 +939,31 @@ class OAuth2
      *
      * @param string $uri
      */
-    public function setTokenCredentialUri($uri)
+    public function setTokenCredentialUri(?string $uri): void
     {
         $this->tokenCredentialUri = $this->coerceUri($uri);
+    }
+
+    /**
+     * Gets the authorization server's HTTP endpoint capable of revoking access
+     * tokens.
+     *
+     * @return string
+     */
+    public function getTokenRevokeUri(): ?string
+    {
+        return $this->tokenRevokeUri;
+    }
+
+    /**
+     * Sets the authorization server's HTTP endpoint capable of revoking access
+     * tokens.
+     *
+     * @param string $uri
+     */
+    public function setTokenCredentialUri(?string $uri): void
+    {
+        $this->tokenRevokeUri = $this->coerceUri($uri);
     }
 
     /**
@@ -956,7 +971,7 @@ class OAuth2
      *
      * @return string
      */
-    public function getRedirectUri()
+    public function getRedirectUri(): ?string
     {
         return $this->redirectUri;
     }
@@ -966,7 +981,7 @@ class OAuth2
      *
      * @param string $uri
      */
-    public function setRedirectUri($uri)
+    public function setRedirectUri(?string $uri): void
     {
         if (is_null($uri)) {
             $this->redirectUri = null;
@@ -991,7 +1006,7 @@ class OAuth2
      *
      * @return string
      */
-    public function getScope()
+    public function getScope(): ?string
     {
         if (is_null($this->scope)) {
             return $this->scope;
@@ -1007,7 +1022,7 @@ class OAuth2
      * @param string|array $scope
      * @throws InvalidArgumentException
      */
-    public function setScope($scope)
+    public function setScope($scope): void
     {
         if (is_null($scope)) {
             $this->scope = null;
@@ -1035,7 +1050,7 @@ class OAuth2
      *
      * @return string
      */
-    public function getGrantType()
+    public function getGrantType(): ?string
     {
         if (!is_null($this->grantType)) {
             return $this->grantType;
@@ -1068,7 +1083,7 @@ class OAuth2
      * @param $grantType
      * @throws InvalidArgumentException
      */
-    public function setGrantType($grantType)
+    public function setGrantType($grantType): void
     {
         if (in_array($grantType, self::$knownGrantTypes)) {
             $this->grantType = $grantType;
@@ -1088,7 +1103,7 @@ class OAuth2
      *
      * @return string
      */
-    public function getState()
+    public function getState(): ?string
     {
         return $this->state;
     }
@@ -1098,7 +1113,7 @@ class OAuth2
      *
      * @param string $state
      */
-    public function setState($state)
+    public function setState(?string $state): void
     {
         $this->state = $state;
     }
@@ -1106,7 +1121,7 @@ class OAuth2
     /**
      * Gets the authorization code issued to this client.
      */
-    public function getCode()
+    public function getCode(): ?string
     {
         return $this->code;
     }
@@ -1116,7 +1131,7 @@ class OAuth2
      *
      * @param string $code
      */
-    public function setCode($code)
+    public function setCode(?string $code): void
     {
         $this->code = $code;
     }
@@ -1124,7 +1139,7 @@ class OAuth2
     /**
      * Gets the resource owner's username.
      */
-    public function getUsername()
+    public function getUsername(): ?string
     {
         return $this->username;
     }
@@ -1134,7 +1149,7 @@ class OAuth2
      *
      * @param string $username
      */
-    public function setUsername($username)
+    public function setUsername(?string $username): void
     {
         $this->username = $username;
     }
@@ -1142,7 +1157,7 @@ class OAuth2
     /**
      * Gets the resource owner's password.
      */
-    public function getPassword()
+    public function getPassword(): ?string
     {
         return $this->password;
     }
@@ -1152,7 +1167,7 @@ class OAuth2
      *
      * @param $password
      */
-    public function setPassword($password)
+    public function setPassword(?string $password): void
     {
         $this->password = $password;
     }
@@ -1161,7 +1176,7 @@ class OAuth2
      * Sets a unique identifier issued to the client to identify itself to the
      * authorization server.
      */
-    public function getClientId()
+    public function getClientId(): ?string
     {
         return $this->clientId;
     }
@@ -1172,7 +1187,7 @@ class OAuth2
      *
      * @param $clientId
      */
-    public function setClientId($clientId)
+    public function setClientId(?string $clientId): void
     {
         $this->clientId = $clientId;
     }
@@ -1181,7 +1196,7 @@ class OAuth2
      * Gets a shared symmetric secret issued by the authorization server, which
      * is used to authenticate the client.
      */
-    public function getClientSecret()
+    public function getClientSecret(): ?string
     {
         return $this->clientSecret;
     }
@@ -1192,7 +1207,7 @@ class OAuth2
      *
      * @param $clientSecret
      */
-    public function setClientSecret($clientSecret)
+    public function setClientSecret(?string $clientSecret): void
     {
         $this->clientSecret = $clientSecret;
     }
@@ -1200,7 +1215,7 @@ class OAuth2
     /**
      * Gets the Issuer ID when using assertion profile.
      */
-    public function getIssuer()
+    public function getIssuer(): ?string
     {
         return $this->issuer;
     }
@@ -1210,7 +1225,7 @@ class OAuth2
      *
      * @param string $issuer
      */
-    public function setIssuer($issuer)
+    public function setIssuer(?string $issuer): void
     {
         $this->issuer = $issuer;
     }
@@ -1218,7 +1233,7 @@ class OAuth2
     /**
      * Gets the target sub when issuing assertions.
      */
-    public function getSub()
+    public function getSub(): ?string
     {
         return $this->sub;
     }
@@ -1228,7 +1243,7 @@ class OAuth2
      *
      * @param string $sub
      */
-    public function setSub($sub)
+    public function setSub(?string $sub): void
     {
         $this->sub = $sub;
     }
@@ -1236,7 +1251,7 @@ class OAuth2
     /**
      * Gets the target audience when issuing assertions.
      */
-    public function getAudience()
+    public function getAudience(): ?string
     {
         return $this->audience;
     }
@@ -1246,7 +1261,7 @@ class OAuth2
      *
      * @param string $audience
      */
-    public function setAudience($audience)
+    public function setAudience(?string $audience): void
     {
         $this->audience = $audience;
     }
@@ -1254,7 +1269,7 @@ class OAuth2
     /**
      * Gets the signing key when using an assertion profile.
      */
-    public function getSigningKey()
+    public function getSigningKey(): ?string
     {
         return $this->signingKey;
     }
@@ -1264,7 +1279,7 @@ class OAuth2
      *
      * @param string $signingKey
      */
-    public function setSigningKey($signingKey)
+    public function setSigningKey(?string $signingKey): void
     {
         $this->signingKey = $signingKey;
     }
@@ -1274,7 +1289,7 @@ class OAuth2
      *
      * @return string
      */
-    public function getSigningKeyId()
+    public function getSigningKeyId(): ?string
     {
         return $this->signingKeyId;
     }
@@ -1284,7 +1299,7 @@ class OAuth2
      *
      * @param string $signingKeyId
      */
-    public function setSigningKeyId($signingKeyId)
+    public function setSigningKeyId(?string $signingKeyId): void
     {
         $this->signingKeyId = $signingKeyId;
     }
@@ -1294,7 +1309,7 @@ class OAuth2
      *
      * @return string
      */
-    public function getSigningAlgorithm()
+    public function getSigningAlgorithm(): ?string
     {
         return $this->signingAlgorithm;
     }
@@ -1304,7 +1319,7 @@ class OAuth2
      *
      * @param string $signingAlgorithm
      */
-    public function setSigningAlgorithm($signingAlgorithm)
+    public function setSigningAlgorithm(?string $signingAlgorithm): void
     {
         if (is_null($signingAlgorithm)) {
             $this->signingAlgorithm = null;
@@ -1523,7 +1538,7 @@ class OAuth2
      *
      * @return array|null
      */
-    public function getLastReceivedToken()
+    public function getLastReceivedToken(): ?array
     {
         if ($token = $this->getAccessToken()) {
             // the bare necessity of an auth token

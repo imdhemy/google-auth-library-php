@@ -26,6 +26,7 @@ use Google\Auth\HttpHandler\HttpHandlerFactory;
 use Google\Auth\ProjectIdProviderInterface;
 use Google\Auth\SignBlob\SignBlobInterface;
 use Google\Auth\SignBlob\ServiceAccountApiSignBlobTrait;
+use Google\Http\ClientInterface;
 use GuzzleHttp\Exception\ClientException;
 use GuzzleHttp\Exception\ConnectException;
 use GuzzleHttp\Exception\RequestException;
@@ -235,10 +236,22 @@ class ComputeCredentials implements
      * @param ClientInterface $httpClient
      * @return bool
      */
-    public static function onGce(): bool
+    public static function onCompute(ClientInterface $httpClient): bool
     {
+        /**
+         * Note: the explicit `timeout` and `tries` below is a workaround. The underlying
+         * issue is that resolving an unknown host on some networks will take
+         * 20-30 seconds; making this timeout short fixes the issue, but
+         * could lead to false negatives in the event that we are on GCE, but
+         * the metadata resolution was particularly slow. The latter case is
+         * "unlikely" since the expected 4-nines time is about 0.5 seconds.
+         * This allows us to limit the total ping maximum timeout to 1.5 seconds
+         * for developer desktop scenarios.
+         */
+        $maxComputePingTries = 3;
+        $computePingConnectionTimeoutSeconds = 0.5;
         $checkUri = 'http://' . self::METADATA_IP;
-        for ($i = 1; $i <= self::MAX_COMPUTE_PING_TRIES; $i++) {
+        for ($i = 1; $i <= $maxComputePingTries; $i++) {
             try {
                 // Comment from: oauth2client/client.py
                 //
@@ -248,13 +261,13 @@ class ComputeCredentials implements
                 // could lead to false negatives in the event that we are on GCE, but
                 // the metadata resolution was particularly slow. The latter case is
                 // "unlikely".
-                $resp = $this->httpClient->send(
+                $resp = $httpClient->send(
                     new Request(
                         'GET',
                         $checkUri,
                         [self::FLAVOR_HEADER => 'Google']
                     ),
-                    ['timeout' => self::COMPUTE_PING_CONNECTION_TIMEOUT_S]
+                    ['timeout' => $computePingConnectionTimeoutSeconds]
                 );
 
                 return $resp->getHeaderLine(self::FLAVOR_HEADER) == 'Google';

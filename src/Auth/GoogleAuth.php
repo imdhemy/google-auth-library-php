@@ -26,6 +26,7 @@ use Google\Auth\Credentials\ServiceAccountJwtAccessCredentials;
 use Google\Auth\Credentials\CredentialsInterface;
 use Google\Auth\Http\ClientFactory;
 use Google\Cache\MemoryCacheItemPool;
+use GuzzleHttp\Psr7\Request;
 use InvalidArgumentException;
 use Psr\Cache\CacheItemPoolInterface;
 
@@ -111,7 +112,7 @@ class GoogleAuth
         ];
 
         $this->httpClient = $options['httpClient'] ?: ClientFactory::build();
-        $this->cache = $options['cachePrefix'] ?: new MemoryCacheItemPool();
+        $this->cache = $options['cache'] ?: new MemoryCacheItemPool();
         $this->cacheLifetme = $options['cacheLifetime'];
         $this->cachePrefix = $options['cachePrefix'];
     }
@@ -147,7 +148,7 @@ class GoogleAuth
             'credentialsFile' => null,
         ];
         if (is_null($options['credentialsFile'])) {
-            $jsonKey = self::fromEnv() ?: self::fromWellKnownFile();
+            $jsonKey = $this->fromEnv() ?: $this->fromWellKnownFile();
         } else {
             if (!file_exists($options['credentialsFile'])) {
                 throw new InvalidArgumentException('Unable to read credentialsFile');
@@ -228,52 +229,13 @@ class GoogleAuth
      */
     public function onCompute(): bool
     {
-        $cacheItem = $this->cache->getItem(self::GCE_CACHE_KEY);
+        $cacheItem = $this->cache->getItem(self::ON_COMPUTE_CACHE_KEY);
 
         if ($cacheItem->isHit()) {
             return $cacheItem->get();
         }
 
-        /**
-         * Note: the explicit `timeout` and `tries` below is a workaround. The underlying
-         * issue is that resolving an unknown host on some networks will take
-         * 20-30 seconds; making this timeout short fixes the issue, but
-         * could lead to false negatives in the event that we are on GCE, but
-         * the metadata resolution was particularly slow. The latter case is
-         * "unlikely" since the expected 4-nines time is about 0.5 seconds.
-         * This allows us to limit the total ping maximum timeout to 1.5 seconds
-         * for developer desktop scenarios.
-         */
-        $onCompute = false;
-        $maxComputePingTries = 3;
-        $computePingConnectionTimeoutSeconds = 0.5;
-        $checkUri = 'http://' . ComputeCredentials::METADATA_IP;
-        for ($i = 1; $i <= $maxComputePingTries; $i++) {
-            try {
-                // Comment from: oauth2client/client.py
-                //
-                // Note: the explicit `timeout` below is a workaround. The underlying
-                // issue is that resolving an unknown host on some networks will take
-                // 20-30 seconds; making this timeout short fixes the issue, but
-                // could lead to false negatives in the event that we are on GCE, but
-                // the metadata resolution was particularly slow. The latter case is
-                // "unlikely".
-                $resp = $this->httpClient->send(
-                    new Request(
-                        'GET',
-                        $checkUri,
-                        [self::FLAVOR_HEADER => 'Google']
-                    ),
-                    ['timeout' => $computePingConnectionTimeoutSeconds]
-                );
-
-                $onCompute = $resp->getHeaderLine(self::FLAVOR_HEADER) == 'Google';
-                break;
-            } catch (ClientException $e) {
-            } catch (ServerException $e) {
-            } catch (RequestException $e) {
-            }
-        }
+        $onCompute = ComputeCredentials::onCompute($this->httpClient);
 
         $cacheItem->set($onCompute);
         $cacheItem->expiresAfter($this->cacheLifetime);
@@ -283,18 +245,39 @@ class GoogleAuth
     }
 
     /**
+     * @param string $token The JSON Web Token to be verified.
+     * @param array $options [optional] Configuration options.
+     * @param string $options.audience The indended recipient of the token.
+     * @param string $options.issuer The intended issuer of the token.
+     * @param string $certsLocation URI for JSON certificate array conforming to
+     *        the JWK spec (see https://tools.ietf.org/html/rfc7517).
+     */
+    public function verify(string $token, array $options = []): array
+    {
+        $location = isset($options['certsLocation'])
+            ? $options['certsLocation']
+            : self::OIDC_CERT_URI;
+
+        $cacheKey = isset($options['cacheKey'])
+            ? $options['cacheKey']
+            : $this->getCacheKeyFromCertLocation($location);
+
+        $certs = $this->getCerts($location, $cacheKey);
+        $oauth = new OAuth2();
+        return $oauth->verify($token, $certs, $options);
+    }
+
+    /**
      * Gets federated sign-on certificates to use for verifying identity tokens.
      * Returns certs as array structure, where keys are key ids, and values
      * are PEM encoded certificates.
      *
      * @param string $location The location from which to retrieve certs.
      * @param string $cacheKey The key under which to cache the retrieved certs.
-     * @param array $options [optional] Configuration options.
      * @return array
      * @throws InvalidArgumentException If received certs are in an invalid format.
      */
-    private function getCerts($location, $cacheKey, array $options = [])
-    {
+    private function getCerts(string $location, string $cacheKey): array {
         $cacheItem = $this->cache->getItem($cacheKey);
         $certs = $cacheItem ? $cacheItem->get() : null;
 
@@ -331,12 +314,11 @@ class GoogleAuth
      * Retrieve and cache a certificates file.
      *
      * @param $url string location
-     * @param array $options [optional] Configuration options.
      * @return array certificates
      * @throws InvalidArgumentException If certs could not be retrieved from a local file.
      * @throws RuntimeException If certs could not be retrieved from a remote location.
      */
-    private function retrieveCertsFromLocation($url, array $options = [])
+    private function retrieveCertsFromLocation(string $url): array
     {
         // If we're retrieving a local file, just grab it.
         if (strpos($url, 'http') !== 0) {
@@ -350,7 +332,7 @@ class GoogleAuth
             return json_decode(file_get_contents($url), true);
         }
 
-        $response = $this->httpClient->send(new Request('GET', $url), $options);
+        $response = $this->httpClient->send(new Request('GET', $url));
 
         if ($response->getStatusCode() == 200) {
             return json_decode((string) $response->getBody(), true);
@@ -379,6 +361,22 @@ class GoogleAuth
     }
 
     /**
+     * Revoke an OAuth2 access token or refresh token. This method will revoke the current access
+     * token, if a token isn't provided.
+     *
+     * @param string|array $token The token (access token or a refresh token) that should be revoked.
+     * @return bool Returns True if the revocation was successful, otherwise False.
+     */
+    public function revoke($token): bool
+    {
+        $oauth = new OAuth2([
+            'tokenRevokeUri' => self::TOKEN_REVOKE_URI,
+        ]);
+
+        return $oauth->revoke($token);
+    }
+
+    /**
      * Load a JSON key from the path specified in the environment.
      *
      * Load a JSON key from the path specified in the environment
@@ -387,7 +385,7 @@ class GoogleAuth
      *
      * @return array|null
      */
-    public static function fromEnv(): ?array
+    public function fromEnv(): ?array
     {
         $path = getenv(self::ENV_VAR);
         if (empty($path)) {
@@ -413,7 +411,7 @@ class GoogleAuth
      *
      * @return array|null
      */
-    public static function fromWellKnownFile(): ?array
+    public function fromWellKnownFile(): ?array
     {
         $rootEnv = self::isOnWindows() ? 'APPDATA' : 'HOME';
         $path = [getenv($rootEnv)];

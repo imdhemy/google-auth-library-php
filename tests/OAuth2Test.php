@@ -1175,4 +1175,56 @@ class OAuth2IdTokenVerifyTest extends TestCase
         $this->assertArrayHasKey('iss', $payload);
         $this->assertEquals('https://cloud.google.com/iap', $payload['iss']);
     }
+
+
+    /**
+     * @dataProvider provideRevoke
+     */
+    public function testRevoke($input, $expected)
+    {
+        $httpClient = createHttpClient(function (RequestInterface $request) use ($expected) {
+            $this->assertEquals('no-store', $request->getHeaderLine('Cache-Control'));
+            $this->assertEquals('application/x-www-form-urlencoded', $request->getHeaderLine('Content-Type'));
+            $this->assertEquals('POST', $request->getMethod());
+            $this->assertEquals(GoogleAuth::OAUTH2_REVOKE_URI, (string) $request->getUri());
+            $this->assertEquals('token=' . $expected, (string) $request->getBody());
+
+            return new Response(200);
+        });
+
+        $oauth = new OAuth2([
+            'httpClient' => $httpClient,
+        ]);
+
+        $this->assertTrue($oauth->revoke($input));
+    }
+
+    public function provideRevoke()
+    {
+        return [
+            [
+                self::TEST_TOKEN,
+                self::TEST_TOKEN
+            ], [
+                ['refresh_token' => self::TEST_TOKEN, 'access_token' => 'other thing'],
+                self::TEST_TOKEN
+            ], [
+                ['access_token' => self::TEST_TOKEN],
+                self::TEST_TOKEN
+            ]
+        ];
+    }
+
+    public function testRevokeFails()
+    {
+        $httpClient = createHttpClient(function (RequestInterface $request) {
+            return new Response(500);
+        });
+
+        $oauth = new OAuth2([
+            'httpClient' => $httpClient,
+        ]);
+
+        $this->assertFalse($oauth->revoke(self::TEST_TOKEN));
+    }
 }
