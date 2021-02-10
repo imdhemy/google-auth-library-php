@@ -21,7 +21,8 @@ possible.
 
 #### Improved Caching
 
-*   Implement caching in credentials instead of as a wrapper:
+*   Implements caching in credentials in `CacheTrait` instead of using the
+    `CredentialsCache` wrapper:
 
 ```php
 $auth = new GoogleClient();
@@ -31,8 +32,7 @@ $credentials = $auth->makeCredentials([
 ]);
 ```
 *   Implement [in-memory cache](https://github.com/googleapis/google-auth-library-php/tree/master/src/Cache) by default
-*   Add caching and check expiry for ID tokens
-*   Fix [SysVCachePool race condition](https://github.com/googleapis/google-auth-library-php/issues/226)
+*   **TODO**: Fix [SysVCachePool race condition](https://github.com/googleapis/google-auth-library-php/issues/226)
 *   **TODO**: Cache keys
     *   Ensure different Auth Token types don't overwrite each other (ID tokens vs Access Token)
     *   Ensure unique cache keys for different credentials / scopes / etc
@@ -47,15 +47,28 @@ $credentials = $auth->makeCredentials([
 
 *   Provides an abstraction from Guzzle HTTP Client
     *   Using the composer "[replace](https://stackoverflow.com/questions/18882201/how-does-the-replace-property-work-with-composer)" keyword, users can ignore sub-dependencies such as Guzzle in favor of a separate HTTP library
-    *   Provide documentation on how to use a different library
+    *   **TODO**: Provide documentation on how to use a different library
 *   Replaces Middleware classes with `CredentialsClient` and `ApiKeyClient` classes
-*   See [Google HTTP PRD](https://docs.google.com/document/d/1In1uKSqvrHe5M-KX-sgmuGRC9oWLrqe1wxSbvUESBFc/edit?usp=sharing)
+*   Adds `Google\Http\ClientInterface` and `Google\Http\PromiseInterface` for
+    vendor abstraction.
+*   Adds `Google\Http\Client\GuzzleClient`, `Google\Http\Promise\GuzzlePromise`
+    and `Google\Http\Client\Psr18Client` implementations.
+*   Uses `Guzzle` implementations by default.
 
+**Example**
+
+```php
+$guzzleConfig = [ /* some custom config */ ];
+$guzzle = new GuzzleHttp\Client($guzzleConfig);
+$httpClient = new Google\Http\Client\GuzzleClient($guzzle);
+$auth = new GoogleAuth(['httpClient' => $httpClient]);
+```
 
 #### New `GoogleAuth` class
 
 `GoogleAuth` replaces `ApplicationDefaultCredentials`, and provides a
-centralized, single entrypoint to the auth library:
+centralized, single entrypoint to the auth library. It has the following
+methods:
 
 ```php
 namespace Google\Auth;
@@ -72,8 +85,18 @@ class GoogleAuth
     public function makeHttpClient(
         ClientInterface $http = null
     ): ApiKeyClient | CredentialsClient;
+
+    public function onCompute(): book;
 }
 ```
+
+The new `GoogleAuth` class does the following:
+
+*   Returns Application Default Credentials for the environment.
+*   Uses options array instead of list of arguments in method signature.
+*   Consolidates HTTP Handler and Caching options in method signatures in favor
+    of class constructor config.
+*   Removes static methods and makes constants private.
 
 **Example: Access token auth**
 
@@ -97,14 +120,6 @@ $authHttp = $auth->makeHttpClient(new Google\Http\Guzzle6Client($guzzle));
 $response = $authHttp->sendRequest(new Request('GET', '/'));
 ```
 
-The new `GoogleAuth` class does the following:
-
-*   Returns Application Default Credentials for the environment
-*   Improved class interface:
-    *   Uses options array instead of list of arguments in method signature
-    *   Consolidates HTTP Handler / Caching options
-    *   Removes static methods
-
 **Example: Metadata**
 
 ```php
@@ -118,10 +133,9 @@ if ($auth->onCompute()) {
 // GCECredentials::onGce($httpHandler = null);
 ```
 
-#### Improved `Credentials` Interface
+#### New `CredentialsInterface` and `CredentialsTrait` to replace `CredentialsLoader`
 
 *   Uses options array instead of list of arguments in method signature
-    *   `http`, `httpOptions`, `cache`, `cacheOptions`
 *   Renames `updateMetadata` to `getRequestMetadata`
     *   An array of headers is returned instead of updating an existing array
 *   Removes **tokenCallback**
@@ -166,7 +180,7 @@ interface CredentialsInterface
 }
 ```
 
-#### Improved ID Token Auth
+#### Improved ID Token auth
 
 *   The `AccessToken` class has been combined with `OAuth2` and `GoogleAuth`
     *   `verify` functions are in the OAuth2 class
@@ -180,11 +194,11 @@ interface CredentialsInterface
 **ID token verify**
 
 ```php
-$oauth = new OAuth2();
-$oauth->verify($idToken);
+$googleAuth = new GoogleAuth();
+$googleAuth->verify($idToken);
 ```
 
-**ID token auth (implicit)**
+**ID token auth**
 
 ```php
 use Google\Auth\GoogleAuth;
@@ -192,28 +206,29 @@ use Psr\Http\Message\Request;
 
 // create auth client
 $cloudRunUrl = 'https://cloud-run-url';
-$auth = new GoogleAuth([
+$googleAuth = new GoogleAuth([
     'targetAudience' => $cloudRunUrl,
 ]);
 
 // create an authorized HTTP client and send a request
 // @throws InvalidArgumentException if credentials do not support ID Token auth
-$http = $auth->makeHttpClient();
+$http = $googleAuth->makeHttpClient();
 $response = $http->send(new Request('GET', $cloudRunUrl));
 ```
 
 #### SignBlob Implementation
 
-*   Fallback to calling [Service Account Credentials](https://cloud.google.com/iam/docs/reference/credentials/rest) API if `openssl` isn't installed
+*   New `SignBlobInterface`
+*   Falls back to calling [Service Account Credentials](https://cloud.google.com/iam/docs/reference/credentials/rest) API if `openssl` isn't installed.
 
 #### Improved 3LO Support
 
-*   Ensure refresh token is used when access token is expired
-*   Add `OAuthCredentials` class for wrapping the OAuth2 service
-*   ~~Add caching to `OAuth2`~~
-*   ~~Fix `OAuth2::isExpired` to return `true` when token expiration is null~~
-    *   Add method `hasValidToken` ?
-*   add support for `credentialsFile` option on `OAuth2`
+*   Ensures refresh token is used when access token is expired
+*   Adds `OAuth2Credentials` class for wrapping the OAuth2 service
+*   Adds support for `credentialsFile` option on `OAuth2`
+*   `OAuth2::isExpired` now returns `true` when token expiration is null
+*   **TODO**: Add caching to `OAuth2`
+*   **TODO**: Consider adding method `hasValidToken`
 
 ```php
 $oauth = new OAuth2(
