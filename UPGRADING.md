@@ -17,13 +17,13 @@ possible.
 *   [Scalar types](https://www.tutorialspoint.com/php7/php7_scalartype_declarations.htm) for scalar function arguments
 *   [Strict typing](https://www.php.net/manual/en/functions.arguments.php#functions.arguments.type-declaration.strict) via `declare(strict_types=1)`
 *   private constants
-*   mark classes as internal using `@internal `and `final`
+*   **TODO**: mark classes as internal using `@internal `and `final`
 
-#### Improved Caching {#improved-caching}
+#### Improved Caching
 
 *   Implement caching in credentials instead of as a wrapper:
 
-    ```php
+```php
 $auth = new GoogleClient();
 $credentials = $auth->makeCredentials([
     'cache' => new MemoryCachePool,
@@ -43,7 +43,7 @@ $credentials = $auth->makeCredentials([
     *   Automatic retry for token expiration API exception
 
 
-#### Improved HTTP handling {#improved-http-handling}
+#### Improved HTTP handling
 
 *   Provides an abstraction from Guzzle HTTP Client
     *   Using the composer "[replace](https://stackoverflow.com/questions/18882201/how-does-the-replace-property-work-with-composer)" keyword, users can ignore sub-dependencies such as Guzzle in favor of a separate HTTP library
@@ -261,16 +261,15 @@ $http = new CredentialsClient(new OAuthCredentials($oauth));
 $http->send(new Request('GET', 'https://www.googleapis.com/drive/v3/files'));
 ```
 
-### Breaking Changes {#breaking-changes}
+### Breaking Changes
 
-#### Dropped Library Support {#dropped-library-support}
+#### Dropped Library Support
 
 *   Drop support for Guzzle 5
 *   Drop support for `firebase\php-jwt` 2.0, 3.0, and 4.0
 *   Drop support for App Engine `php55`
 
-#### Class/Interface Renames {#class-interface-renames}
-
+#### Class/Interface Renames
 
 <table>
   <tr>
