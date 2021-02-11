@@ -94,20 +94,14 @@ methods:
 ```php
 namespace Google\Auth;
 
-use Google\Http\ClientInterface;
 use Google\Auth\Credentials\CredentialsInterface;
-use Google\Auth\Http\ApiKeyClient;
-use Google\Auth\Http\CredentialsClient;
 
 class GoogleAuth
 {
-    public function makeCredentials(): CredentialsInterface;
-
-    public function makeHttpClient(
-        ClientInterface $http = null
-    ): ApiKeyClient | CredentialsClient;
-
-    public function onCompute(): book;
+    public function makeCredentials(array $options = []): CredentialsInterface;
+    public function onCompute(array $options = []): bool;
+    public function verify(string $token, array $options = []): bool;
+    public function revoke(string $token): bool;
 }
 ```
 
@@ -117,28 +111,29 @@ The new `GoogleAuth` class does the following:
 *   Uses options array instead of list of arguments in method signature.
 *   Consolidates HTTP Handler and Caching options in method signatures in favor
     of class constructor config.
-*   Removes static methods and makes constants private.
+*   Removes static methods and public constants.
 
 **Example: Access token auth**
 
 ```php
-use Google\Auth\GoogleAuth;
-use Psr\Http\Message\Request;
-
 // create auth client
-$auth = new GoogleAuth([
+$googleAuth = new Google\Auth\GoogleAuth([
     'scope' => 'https://www.googleapis.com/auth/drive.readonly',
 ]);
 
-// create an authorized client
-$authHttp = $auth->makeHttpClient();
+// create an authorized client using Application Default Credentials
+$credentials = $googleAuth->makeCredentials();
+$authHttp = new Google\Auth\Http\CredentialsClient($credentials);
 
-// create an authorized client from an existing client
+// create an authorized client from an existing Guzzle client
 $guzzle = new GuzzleHttp\Client();
-$authHttp = $auth->makeHttpClient(new Google\Http\Guzzle6Client($guzzle));
+$authHttp = new CredentialsClient(
+  $credentials,
+  new Google\Http\Guzzle6Client($guzzle)
+);
 
 // make the request
-$response = $authHttp->sendRequest(new Request('GET', '/'));
+$response = $authHttp->sendRequest(new Psr\Http\Message\Request('GET', '/'));
 ```
 
 **Example: Metadata**
@@ -233,8 +228,10 @@ $googleAuth = new GoogleAuth([
 
 // create an authorized HTTP client and send a request
 // @throws InvalidArgumentException if credentials do not support ID Token auth
-$http = $googleAuth->makeHttpClient();
-$response = $http->send(new Request('GET', $cloudRunUrl));
+$authHttp = new Google\Auth\Http\CredentialsClient(
+  $googleAuth->makeCredentials()
+);
+$response = $authHttp->send(new Psr\Http\Message\Request('GET', $cloudRunUrl));
 ```
 
 #### SignBlob Implementation
@@ -411,7 +408,7 @@ into <code>Credentials\CredentialsTrait</code>
    </td>
    <td><strong>refactored</strong>
 <p>
-into <code>GoogleAuth</code> (<code>makeHttpClient</code>, and <code>makeCredentials</code> methods) and <code>Credentials\CredentialsTrait</code> (<code>getRequestMetadata</code> method). <code>fromEnv</code> and <code>fromWellKnownFile</code> have been removed.
+into <code>GoogleAuth</code> (<code>makeCredentials</code> method) and <code>Credentials\CredentialsTrait</code> (<code>getRequestMetadata</code> method). <code>fromEnv</code> and <code>fromWellKnownFile</code> have been removed.
 <p>
 See <a href="#method-removals">Method Removals</a>
    </td>
@@ -573,7 +570,7 @@ Guzzle 5 is no longer supported
    </td>
    <td><strong>refactored</strong>
 <p>
-into <code>GoogleAuth::makeHttpClient</code>
+into <code>GoogleAuth::makeCredentials</code> and <code>CredentialsClient</code>
    </td>
   </tr>
   <tr>
@@ -583,7 +580,7 @@ into <code>GoogleAuth::makeHttpClient</code>
    </td>
    <td><strong>refactored</strong>
 <p>
-into <code>GoogleAuth::makeHttpClient</code>
+into <code>GoogleAuth::makeCredentials</code> and <code>CredentialsClient</code>
    </td>
   </tr>
   <tr>
@@ -613,7 +610,7 @@ A wrapper method to just create the class is not very useful.
    </td>
    <td><strong>renamed/refactored</strong>
 <p>
-This happens implicitly when calling <code>GoogleAuth::discoverKeyFile</code>
+This happens implicitly when calling <code>GoogleAuth::makeCredentials</code>
    </td>
   </tr>
   <tr>
@@ -623,7 +620,7 @@ This happens implicitly when calling <code>GoogleAuth::discoverKeyFile</code>
    </td>
    <td><strong>renamed/refactored</strong>
 <p>
-This happens implicitly when calling <code>GoogleAuth::discoverKeyFile</code>
+This happens implicitly when calling <code>GoogleAuth::makeCredentials</code>
    </td>
   </tr>
   <tr>

@@ -418,10 +418,10 @@ class GoogleAuth
      * Revoke an OAuth2 access token or refresh token. This method will revoke the current access
      * token, if a token isn't provided.
      *
-     * @param string|array $token The token (access token or a refresh token) that should be revoked.
+     * @param string $token The token (access token or a refresh token) that should be revoked.
      * @return bool Returns True if the revocation was successful, otherwise False.
      */
-    public function revoke($token): bool
+    public function revoke(string $token): bool
     {
         $oauth2 = new OAuth2([
             'tokenRevokeUri' => self::TOKEN_REVOKE_URI,
@@ -439,7 +439,7 @@ class GoogleAuth
      *
      * @return array|null
      */
-    public function fromEnv(): ?array
+    private function fromEnv(): ?array
     {
         $path = getenv(self::ENV_VAR);
         if (empty($path)) {
@@ -465,7 +465,7 @@ class GoogleAuth
      *
      * @return array|null
      */
-    public function fromWellKnownFile(): ?array
+    private function fromWellKnownFile(): ?array
     {
         $rootEnv = self::isOnWindows() ? 'APPDATA' : 'HOME';
         $path = [getenv($rootEnv)];

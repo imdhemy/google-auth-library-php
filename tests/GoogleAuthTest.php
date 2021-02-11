@@ -334,86 +334,28 @@ class GoogleAuthTest extends BaseTest
 
 
     // TODO: Refactor Middleware Tests
-    // /**
-    //  * @expectedException DomainException
-    //  */
-    // public function testIsFailsEnvSpecifiesNonExistentFile()
-    // {
-    //     $keyFile = __DIR__ . '/fixtures' . '/does-not-exist-private.json';
-    //     putenv('GOOGLE_APPLICATION_CREDENTIALS=' . $keyFile);
-    //     GoogleAuth::getMiddleware('a scope');
-    // }
 
-    // public function testLoadsOKIfEnvSpecifiedIsValid()
-    // {
-    //     $keyFile = __DIR__ . '/fixtures' . '/private.json';
-    //     putenv('GOOGLE_APPLICATION_CREDENTIALS=' . $keyFile);
-    //     $this->assertNotNull(GoogleAuth::getMiddleware('a scope'));
-    // }
+    public function testSuccedsIfNoDefaultFilesButIsOnCompute()
+    {
+        $wantedTokens = [
+            'access_token' => '1/abdef1234567890',
+            'expires_in' => '57',
+            'token_type' => 'Bearer',
+        ];
+        $jsonTokens = json_encode($wantedTokens);
 
-    // public function testLoadsDefaultFileIfPresentAndEnvVarIsNotSet()
-    // {
-    //     putenv('HOME=' . __DIR__ . '/fixtures');
-    //     $this->assertNotNull(GoogleAuth::getMiddleware('a scope'));
-    // }
+        // simulate the response from GCE.
+        $httpClient = httpClientWithResponses([
+            new Response(200, ['Metadata-Flavor' => 'Google']),
+            new Response(200, [], Psr7\stream_for($jsonTokens)),
+        ]);
 
-    // /**
-    //  * @expectedException DomainException
-    //  */
-    // public function testFailsIfNotOnComputeAndNoDefaultFileFound()
-    // {
-    //     putenv('HOME=' . __DIR__ . '/not_exist_fixtures');
+        $googleAuth = new GoogleAuth(['httpClient' => $httpClient]);
+        $client = $googleAuth->makeHttpClient('a scope');
 
-    //     // simulate not being GCE and retry attempts by returning multiple 500s
-    //     $httpClient = httpClientWithResponses([
-    //         new Response(500),
-    //         new Response(500),
-    //         new Response(500)
-    //     ]);
+        $this->assertNotNull($client);
+    }
 
-    //     GoogleAuth::getMiddleware('a scope', $httpClient);
-    // }
-
-    // public function testWithCacheOptions()
-    // {
-    //     $keyFile = __DIR__ . '/fixtures' . '/private.json';
-    //     putenv('GOOGLE_APPLICATION_CREDENTIALS=' . $keyFile);
-
-    //     $httpClient = httpClientWithResponses([
-    //         new Response(200),
-    //     ]);
-
-    //     $cacheOptions = [];
-    //     $cachePool = $this->prophesize(CacheItemPoolInterface::class);
-
-    //     $middleware = GoogleAuth::getMiddleware(
-    //         'a scope',
-    //         $httpClient,
-    //         $cacheOptions,
-    //         $cachePool->reveal()
-    //     );
-    // }
-
-    // public function testSuccedsIfNoDefaultFilesButIsOnCompute()
-    // {
-    //     $wantedTokens = [
-    //         'access_token' => '1/abdef1234567890',
-    //         'expires_in' => '57',
-    //         'token_type' => 'Bearer',
-    //     ];
-    //     $jsonTokens = json_encode($wantedTokens);
-
-    //     // simulate the response from GCE.
-    //     $httpClient = httpClientWithResponses([
-    //         new Response(200, ['Metadata-Flavor' => 'Google']),
-    //         new Response(200, [], Psr7\stream_for($jsonTokens)),
-    //     ]);
-
-    //     $googleAuth = new GoogleAuth(['httpClient' => $httpClient]);
-    //     $client = $googleAuth->makeHttpClient('a scope');
-
-    //     $this->assertNotNull($client);
-    // }
 
     // /**
     //  * @expectedException DomainException
@@ -516,29 +458,6 @@ class GoogleAuthTest extends BaseTest
     // /**
     //  * @expectedException DomainException
     //  */
-    // public function testIsFailsEnvSpecifiesNonExistentFile()
-    // {
-    //     $keyFile = __DIR__ . '/fixtures' . '/does-not-exist-private.json';
-    //     putenv('GOOGLE_APPLICATION_CREDENTIALS=' . $keyFile);
-    //     GoogleAuth::getIdTokenCredentials(self::TEST_TARGET_AUDIENCE);
-    // }
-
-    // public function testLoadsOKIfEnvSpecifiedIsValid()
-    // {
-    //     $keyFile = __DIR__ . '/fixtures' . '/private.json';
-    //     putenv('GOOGLE_APPLICATION_CREDENTIALS=' . $keyFile);
-    //     GoogleAuth::getIdTokenCredentials(self::TEST_TARGET_AUDIENCE);
-    // }
-
-    // public function testLoadsDefaultFileIfPresentAndEnvVarIsNotSet()
-    // {
-    //     putenv('HOME=' . __DIR__ . '/fixtures');
-    //     GoogleAuth::getIdTokenCredentials(self::TEST_TARGET_AUDIENCE);
-    // }
-
-    // /**
-    //  * @expectedException DomainException
-    //  */
     // public function testFailsIfNotOnGceAndNoDefaultFileFound()
     // {
     //     putenv('HOME=' . __DIR__ . '/not_exist_fixtures');
@@ -554,28 +473,6 @@ class GoogleAuthTest extends BaseTest
     //         self::TEST_TARGET_AUDIENCE,
     //         $httpClient
     //     );
-    // }
-
-    // public function testWithCacheOptions()
-    // {
-    //     $keyFile = __DIR__ . '/fixtures' . '/private.json';
-    //     putenv('GOOGLE_APPLICATION_CREDENTIALS=' . $keyFile);
-
-    //     $httpClient = httpClientWithResponses([
-    //         new Response(200),
-    //     ]);
-
-    //     $cacheOptions = [];
-    //     $cachePool = $this->prophesize(CacheItemPoolInterface::class);
-
-    //     $credentials = GoogleAuth::getIdTokenCredentials(
-    //         self::TEST_TARGET_AUDIENCE,
-    //         $httpClient,
-    //         $cacheOptions,
-    //         $cachePool->reveal()
-    //     );
-
-    //     $this->assertInstanceOf('Google\Auth\FetchAuthTokenCache', $credentials);
     // }
 
     // public function testIdTokenIfNoDefaultFilesButIsOnCompute()

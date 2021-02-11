@@ -640,23 +640,15 @@ class OAuth2
      * Revoke an OAuth2 access token or refresh token. This method will revoke the current access
      * token, if a token isn't provided.
      *
-     * @param string|array $token The token (access token or a refresh token) that should be revoked.
+     * @param string $token The token (access token or a refresh token) that should be revoked.
      * @return bool Returns True if the revocation was successful, otherwise False.
      */
-    public function revoke($token): bool
+    public function revoke(string $token): bool
     {
         if (is_null($this->getTokenRevokeUri())) {
             throw new InvalidArgumentException(
                 'requires an tokenRevokeUri to have been set'
             );
-        }
-
-        if (is_array($token)) {
-            if (isset($token['refresh_token'])) {
-                $token = $token['refresh_token'];
-            } else {
-                $token = $token['access_token'];
-            }
         }
 
         $body = Psr7\stream_for(http_build_query(['token' => $token]));
