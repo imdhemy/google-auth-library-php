@@ -21,9 +21,12 @@ use Google\Auth\GoogleAuth;
 use Google\Auth\Credentials\ComputeCredentials;
 use Google\Auth\Credentials\ServiceAccountCredentials;
 use Google\Auth\Credentials\UserRefreshCredentials;
+use Google\Auth\Jwt\JwtClientInterface;
 use GuzzleHttp\Psr7;
 use GuzzleHttp\Psr7\Response;
 use PHPUnit\Framework\TestCase;
+use Psr\Cache\CacheItemInterface;
+use Psr\Cache\CacheItemPoolInterface;
 use ReflectionClass;
 use Prophecy\Argument;
 
@@ -35,6 +38,7 @@ class GoogleAuthTest extends BaseTest
     private const TEST_TARGET_AUDIENCE = 'a target audience';
     private const TEST_QUOTA_PROJECT = 'a-quota-project';
     private const TEST_TOKEN = 'foobar';
+    private const OIDC_CERTS_HASH = '383205148db079b1df1a9fa3785d5b56f47d7b30';
 
     private $mockCacheItem;
     private $mockCache;
@@ -43,8 +47,8 @@ class GoogleAuthTest extends BaseTest
     {
         putenv('HOME');
         putenv('GOOGLE_APPLICATION_CREDENTIALS');
-        $this->mockCacheItem = $this->prophesize('Psr\Cache\CacheItemInterface');
-        $this->mockCache = $this->prophesize('Psr\Cache\CacheItemPoolInterface');
+        $this->mockCacheItem = $this->prophesize(CacheItemInterface::class);
+        $this->mockCache = $this->prophesize(CacheItemPoolInterface::class);
     }
 
     public function testCachedOnComputeTrueValue()
@@ -380,7 +384,7 @@ class GoogleAuthTest extends BaseTest
     //     ]);
 
     //     $cacheOptions = [];
-    //     $cachePool = $this->prophesize('Psr\Cache\CacheItemPoolInterface');
+    //     $cachePool = $this->prophesize(CacheItemPoolInterface::class);
 
     //     $middleware = GoogleAuth::getMiddleware(
     //         'a scope',
@@ -418,14 +422,14 @@ class GoogleAuthTest extends BaseTest
     // {
     //     putenv('HOME=' . __DIR__ . '/not_exist_fixtures');
 
-    //     $mockCacheItem = $this->prophesize('Psr\Cache\CacheItemInterface');
+    //     $mockCacheItem = $this->prophesize(CacheItemInterface::class);
     //     $mockCacheItem->isHit()
     //         ->willReturn(true);
     //     $mockCacheItem->get()
     //         ->shouldBeCalledTimes(1)
     //         ->willReturn(false);
 
-    //     $mockCache = $this->prophesize('Psr\Cache\CacheItemPoolInterface');
+    //     $mockCache = $this->prophesize(CacheItemPoolInterface::class);
     //     $mockCache->getItem('google_auth_on_gce_cache')
     //         ->shouldBeCalledTimes(1)
     //         ->willReturn($mockCacheItem->reveal());
@@ -447,7 +451,7 @@ class GoogleAuthTest extends BaseTest
     //         $gceIsCalled = true;
     //         return new Response(200, ['Metadata-Flavor' => 'Google']);
     //     };
-    //     $mockCacheItem = $this->prophesize('Psr\Cache\CacheItemInterface');
+    //     $mockCacheItem = $this->prophesize(CacheItemInterface::class);
     //     $mockCacheItem->isHit()
     //         ->willReturn(false);
     //     $mockCacheItem->set(true)
@@ -455,7 +459,7 @@ class GoogleAuthTest extends BaseTest
     //     $mockCacheItem->expiresAfter(1500)
     //         ->shouldBeCalledTimes(1);
 
-    //     $mockCache = $this->prophesize('Psr\Cache\CacheItemPoolInterface');
+    //     $mockCache = $this->prophesize(CacheItemPoolInterface::class);
     //     $mockCache->getItem('google_auth_on_gce_cache')
     //         ->shouldBeCalledTimes(1)
     //         ->willReturn($mockCacheItem->reveal());
@@ -484,7 +488,7 @@ class GoogleAuthTest extends BaseTest
     //         $gceIsCalled = true;
     //         return new Response(200, ['Metadata-Flavor' => 'Google']);
     //     };
-    //     $mockCacheItem = $this->prophesize('Psr\Cache\CacheItemInterface');
+    //     $mockCacheItem = $this->prophesize(CacheItemInterface::class);
     //     $mockCacheItem->isHit()
     //         ->willReturn(false);
     //     $mockCacheItem->set(true)
@@ -492,7 +496,7 @@ class GoogleAuthTest extends BaseTest
     //     $mockCacheItem->expiresAfter($lifetime)
     //         ->shouldBeCalledTimes(1);
 
-    //     $mockCache = $this->prophesize('Psr\Cache\CacheItemPoolInterface');
+    //     $mockCache = $this->prophesize(CacheItemPoolInterface::class);
     //     $mockCache->getItem($prefix . 'google_auth_on_gce_cache')
     //         ->shouldBeCalledTimes(1)
     //         ->willReturn($mockCacheItem->reveal());
@@ -562,7 +566,7 @@ class GoogleAuthTest extends BaseTest
     //     ]);
 
     //     $cacheOptions = [];
-    //     $cachePool = $this->prophesize('Psr\Cache\CacheItemPoolInterface');
+    //     $cachePool = $this->prophesize(CacheItemPoolInterface::class);
 
     //     $credentials = GoogleAuth::getIdTokenCredentials(
     //         self::TEST_TARGET_AUDIENCE,
@@ -639,7 +643,7 @@ class GoogleAuthTest extends BaseTest
             new Response(200),
         ]);
 
-        $cachePool = $this->prophesize('Psr\Cache\CacheItemPoolInterface');
+        $cachePool = $this->prophesize(CacheItemPoolInterface::class);
 
         $googleAuth = new GoogleAuth([
             'cache' => $cachePool->reveal(),
@@ -734,26 +738,26 @@ class GoogleAuthTest extends BaseTest
         $iapJwkUrl = 'https://www.gstatic.com/iap/verify/public_key-jwk';
         $googleAuth = new GoogleAuth();
         $reflector = new \ReflectionClass($googleAuth);
-        $cacheKeyMethod = $reflector->getMethod('getCacheKeyFromCertLocation');
-        $cacheKeyMethod->setAccessible(true);
         $getCertsMethod = $reflector->getMethod('getCerts');
         $getCertsMethod->setAccessible(true);
-        $cacheKey = $cacheKeyMethod->invoke($googleAuth, $iapJwkUrl);
+        $cacheKey = 'test_cache_key';
         $certs = $getCertsMethod->invoke(
             $googleAuth,
             $iapJwkUrl,
             $cacheKey
         );
+
         $this->assertTrue(is_array($certs));
-        $this->assertEquals(5, count($certs));
+        $this->assertEquals(5, count($certs['keys']));
     }
 
     public function testRetrieveCertsFromLocationLocalFile()
     {
         $certsLocation = __DIR__ . '/fixtures/federated-certs.json';
         $certsData = json_decode(file_get_contents($certsLocation), true);
+        $parsedCertsData = [];
 
-        $item = $this->prophesize('Psr\Cache\CacheItemInterface');
+        $item = $this->prophesize(CacheItemInterface::class);
         $item->get()
             ->shouldBeCalledTimes(1)
             ->willReturn(null);
@@ -766,26 +770,27 @@ class GoogleAuthTest extends BaseTest
             ->shouldBeCalledTimes(1)
             ->willReturn($item->reveal());
 
-        $this->mockCache->save(Argument::type('Psr\Cache\CacheItemInterface'))
+        $this->mockCache->save(Argument::type(CacheItemInterface::class))
             ->shouldBeCalledTimes(1);
 
-        $googleAuth = new GoogleAuth(['cache' => $this->mockCache->reveal()]);
+        $jwt = $this->prophesize(JwtClientInterface::class);
+        $jwt->parseKeySet($certsData)
+            ->shouldBeCalledTimes(1)
+            ->willReturn($parsedCertsData);
+        $jwt->decode(self::TEST_TOKEN, $parsedCertsData, ['RS256'])
+            ->shouldBeCalledTimes(1)
+            ->willReturn([
+                'iss' => 'https://accounts.google.com'
+            ]);
 
-        $googleAuth->mocks['decode'] = function ($googleAuth, $publicKey, $allowedAlgs) {
-            $this->assertEquals(self::TEST_TOKEN, $googleAuth);
-            $this->assertEquals(['RS256'], $allowedAlgs);
-
-            return (object) [
-                'iat' => time(),
-                'exp' => time() + 30,
-                'name' => 'foo',
-                'iss' => AccessToken::OAUTH2_ISSUER_HTTPS
-            ];;
-        };
-
-        $googleAuth->verify(self::TEST_TOKEN, [
-            'certsLocation' => $certsLocation
+        $googleAuth = new GoogleAuth([
+            'cache' => $this->mockCache->reveal(),
+            'jwtClient' => $jwt->reveal(),
         ]);
+
+        $this->assertTrue($googleAuth->verify(self::TEST_TOKEN, [
+            'certsLocation' => $certsLocation
+        ]));
     }
 
     public function testRetrieveCertsFromLocationLocalFileInvalidFilePath()
@@ -795,7 +800,7 @@ class GoogleAuthTest extends BaseTest
 
         $certsLocation = __DIR__ . '/fixtures/federated-certs-does-not-exist.json';
 
-        $item = $this->prophesize('Psr\Cache\CacheItemInterface');
+        $item = $this->prophesize(CacheItemInterface::class);
         $item->get()
             ->shouldBeCalledTimes(1)
             ->willReturn(null);
@@ -814,14 +819,14 @@ class GoogleAuthTest extends BaseTest
     public function testRetrieveCertsInvalidData()
     {
         $this->expectException('InvalidArgumentException');
-        $this->expectExceptionMessage('federated sign-on certs expects "keys" to be set');
+        $this->expectExceptionMessage('certs expects "keys" to be set');
 
-        $item = $this->prophesize('Psr\Cache\CacheItemInterface');
+        $item = $this->prophesize(CacheItemInterface::class);
         $item->get()
             ->shouldBeCalledTimes(1)
             ->willReturn('{}');
 
-        $this->mockCache->getItem('google_auth_certs_cache|federated_signon_certs_v3')
+        $this->mockCache->getItem('google_auth_certs_cache|' . self::OIDC_CERTS_HASH)
             ->shouldBeCalledTimes(1)
             ->willReturn($item->reveal());
 
@@ -832,13 +837,14 @@ class GoogleAuthTest extends BaseTest
 
     public function testRetrieveCertsFromLocationLocalFileInvalidFileData()
     {
-         $this->expectException('InvalidArgumentException');
-         $this->expectExceptionMessage('federated sign-on certs expects "keys" to be set');
+        $this->expectException('InvalidArgumentException');
+        $this->expectExceptionMessage('certs expects "keys" to be set');
+
         $temp = tmpfile();
         fwrite($temp, '{}');
         $certsLocation = stream_get_meta_data($temp)['uri'];
 
-        $item = $this->prophesize('Psr\Cache\CacheItemInterface');
+        $item = $this->prophesize(CacheItemInterface::class);
         $item->get()
             ->shouldBeCalledTimes(1)
             ->willReturn(null);
@@ -859,6 +865,7 @@ class GoogleAuthTest extends BaseTest
         $certsLocation = __DIR__ . '/fixtures/federated-certs.json';
         $certsJson = file_get_contents($certsLocation);
         $certsData = json_decode($certsJson, true);
+        $parsedCertsData = [];
 
         $httpClient = httpClientFromCallable(
             function ($request) use ($certsJson) {
@@ -872,40 +879,39 @@ class GoogleAuthTest extends BaseTest
             }
         );
 
-        $item = $this->prophesize('Psr\Cache\CacheItemInterface');
+        $item = $this->prophesize(CacheItemInterface::class);
         $item->get()
             ->shouldBeCalledTimes(1)
             ->willReturn(null);
         $item->set($certsData)
             ->shouldBeCalledTimes(1);
-        $item->expiresAt(Argument::type('\DateTime'))
+        $item->expiresAfter(1500)
             ->shouldBeCalledTimes(1);
 
-        $this->mockCache->getItem('google_auth_certs_cache|federated_signon_certs_v3')
+        $this->mockCache->getItem('google_auth_certs_cache|' . self::OIDC_CERTS_HASH)
             ->shouldBeCalledTimes(1)
             ->willReturn($item->reveal());
 
-        $this->mockCache->save(Argument::type('Psr\Cache\CacheItemInterface'))
+        $this->mockCache->save(Argument::type(CacheItemInterface::class))
             ->shouldBeCalledTimes(1);
 
+        $jwt = $this->prophesize(JwtClientInterface::class);
+        $jwt->parseKeySet($certsData)
+            ->shouldBeCalledTimes(1)
+            ->willReturn($parsedCertsData);
+        $jwt->decode(self::TEST_TOKEN, $parsedCertsData, ['RS256'])
+            ->shouldBeCalledTimes(1)
+            ->willReturn([
+                'iss' => 'https://accounts.google.com'
+            ]);
+
         $googleAuth = new GoogleAuth([
-            'httpClient' => $httpClient,
             'cache' => $this->mockCache->reveal(),
+            'httpClient' => $httpClient,
+            'jwtClient' => $jwt->reveal(),
         ]);
 
-        $googleAuth->mocks['decode'] = function ($googleAuth, $publicKey, $allowedAlgs) {
-            $this->assertEquals(self::TEST_TOKEN, $googleAuth);
-            $this->assertEquals(['RS256'], $allowedAlgs);
-
-            return (object) [
-                'iat' => time(),
-                'exp' => time() + 30,
-                'name' => 'foo',
-                'iss' => AccessToken::OAUTH2_ISSUER_HTTPS
-            ];;
-        };
-
-        $googleAuth->verify(self::TEST_TOKEN);
+        $this->assertTrue($googleAuth->verify(self::TEST_TOKEN));
     }
 
     public function testRetrieveCertsFromLocationRemoteBadRequest()
@@ -919,12 +925,12 @@ class GoogleAuthTest extends BaseTest
             new Response(500, [], $badBody),
         ]);
 
-        $item = $this->prophesize('Psr\Cache\CacheItemInterface');
+        $item = $this->prophesize(CacheItemInterface::class);
         $item->get()
             ->shouldBeCalledTimes(1)
             ->willReturn(null);
 
-        $this->mockCache->getItem('google_auth_certs_cache|federated_signon_certs_v3')
+        $this->mockCache->getItem('google_auth_certs_cache|' . self::OIDC_CERTS_HASH)
             ->shouldBeCalledTimes(1)
             ->willReturn($item->reveal());
 

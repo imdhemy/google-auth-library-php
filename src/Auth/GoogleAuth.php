@@ -20,17 +20,22 @@ declare(strict_types=1);
 namespace Google\Auth;
 
 use DomainException;
+use Firebase\JWT\JWT;
+use Firebase\JWT\JWK;
 use Google\Auth\Credentials\ComputeCredentials;
 use Google\Auth\Credentials\ServiceAccountCredentials;
 use Google\Auth\Credentials\ServiceAccountJwtAccessCredentials;
 use Google\Auth\Credentials\CredentialsInterface;
 use Google\Auth\Credentials\UserRefreshCredentials;
 use Google\Auth\Http\ClientFactory;
+use Google\Auth\Jwt\FirebaseJwtClient;
+use Google\Auth\Jwt\JwtClientInterface;
 use Google\Cache\MemoryCacheItemPool;
 use GuzzleHttp\Psr7\Request;
 use InvalidArgumentException;
 use Psr\Cache\CacheItemPoolInterface;
 use RuntimeException;
+use UnexpectedValueException;
 
 /**
  * GoogleAuth obtains the default credentials for
@@ -73,7 +78,7 @@ class GoogleAuth
 {
     private const TOKEN_REVOKE_URI = 'https://oauth2.googleapis.com/revoke';
     private const OIDC_CERT_URI = 'https://www.googleapis.com/oauth2/v3/certs';
-    private const OIDC_ISSUERS = ['accounts.google.com', 'https://accounts.google.com'];
+    private const OIDC_ISSUERS = ['http://accounts.google.com', 'https://accounts.google.com'];
     private const IAP_JWK_URI = 'https://www.gstatic.com/iap/verify/public_key-jwk';
     private const IAP_ISSUERS = ['https://cloud.google.com/iap'];
 
@@ -81,12 +86,11 @@ class GoogleAuth
     private const WELL_KNOWN_PATH = 'gcloud/application_default_credentials.json';
     private const NON_WINDOWS_WELL_KNOWN_PATH_BASE = '.config';
 
-    private const ON_COMPUTE_CACHE_KEY = 'google_auth_on_gce_cache';
-
-    private $httpClient;
     private $cache;
     private $cacheLifetime;
     private $cachePrefix;
+    private $httpClient;
+    private $jwtClient;
 
     /**
      * Obtains an AuthTokenMiddleware which will fetch an access token to use in
@@ -98,6 +102,7 @@ class GoogleAuth
      *
      * @param array $options {
      *      @type ClientInterface $httpClient client which delivers psr7 request
+     *      @type JwtClientInterface $jwtClient
      *      @type CacheItemPoolInterface $cache A cache implementation, may be
      *             provided if you have one already available for use.
      *      @type int $cacheLifetime
@@ -107,15 +112,18 @@ class GoogleAuth
     public function __construct(array $options = [])
     {
         $options += [
-            'httpClient' => null,
             'cache' => null,
             'cacheLifetime' => 1500,
             'cachePrefix' => '',
+            'httpClient' => null,
+            'jwtClient' => null,
         ];
-        $this->httpClient = $options['httpClient'] ?: ClientFactory::build();
         $this->cache = $options['cache'] ?: new MemoryCacheItemPool();
         $this->cacheLifetime = $options['cacheLifetime'];
         $this->cachePrefix = $options['cachePrefix'];
+        $this->httpClient = $options['httpClient'] ?: ClientFactory::build();
+        $this->jwtClient = $options['jwtClient']
+            ?: new FirebaseJwtClient(new JWT(), new JWK());
     }
 
     /**
@@ -233,13 +241,18 @@ class GoogleAuth
      * Determines if this a GCE instance, by accessing the expected metadata
      * host.
      *
+     * @param array $options [optional] Configuration options.
+     * @param string $options.cacheKey cache key used for caching the result
+     *
      * @return bool
      */
-    public function onCompute(): bool
+    public function onCompute(array $options = []): bool
     {
-        $cacheItem = $this->cache->getItem(
-            $this->cachePrefix . self::ON_COMPUTE_CACHE_KEY
-        );
+        $options += [
+            'cacheKey' => null,
+        ];
+        $cacheKey = $options['cacheKey'] ?: 'google_auth_on_gce_cache';
+        $cacheItem = $this->cache->getItem($this->cachePrefix . $cacheKey);
 
         if ($cacheItem->isHit()) {
             return $cacheItem->get();
@@ -257,23 +270,42 @@ class GoogleAuth
      * @param string $token The JSON Web Token to be verified.
      * @param array $options [optional] Configuration options.
      * @param string $options.audience The indended recipient of the token.
-     * @param string $options.issuer The intended issuer of the token.
-     * @param string $certsLocation URI for JSON certificate array conforming to
+     * @param string $options.cacheKey cache key used for caching certs
+     * @param string $options.certsLocation URI for JSON certificate array conforming to
      *        the JWK spec (see https://tools.ietf.org/html/rfc7517).
+     * @param array  $options.issuers The intended issuers of the token.
      */
-    public function verify(string $token, array $options = []): array
+    public function verify(string $token, array $options = []): bool
     {
-        $location = isset($options['certsLocation'])
-            ? $options['certsLocation']
-            : self::OIDC_CERT_URI;
-
-        $cacheKey = isset($options['cacheKey'])
-            ? $options['cacheKey']
-            : $this->getCacheKeyFromCertLocation($location);
+        $options += [
+            'audience' => null,
+            'certsLocation' => null,
+            'cacheKey' => null,
+            'issuers' => null,
+        ];
+        $location = $options['certsLocation'] ?: self::OIDC_CERT_URI;
+        $cacheKey = $options['cacheKey'] ?:
+            sprintf('google_auth_certs_cache|%s', sha1($location));
 
         $certs = $this->getCerts($location, $cacheKey);
-        $oauth = new OAuth2();
-        return $oauth->verify($token, $certs, $options);
+        $alg = $this->determineAlg($certs);
+
+        $keys = $this->jwtClient->parseKeySet($certs);
+        $payload = $this->jwtClient->decode($token, $keys, [$alg]);
+
+        $issuers = $options['issuers'] ?:
+            ['RS256' => self::OIDC_ISSUERS, 'ES256' => self::IAP_ISSUERS][$alg];
+
+        if (empty($payload['iss']) || !in_array($payload['iss'], $issuers)) {
+            throw new UnexpectedValueException('Issuer does not match');
+        }
+
+        $aud = $options['audience'] ?: null;
+        if ($aud && isset($payload['aud']) && $payload['aud'] != $aud) {
+            throw new UnexpectedValueException('Audience does not match');
+        }
+
+        return true;
     }
 
     /**
@@ -286,8 +318,9 @@ class GoogleAuth
      * @return array
      * @throws InvalidArgumentException If received certs are in an invalid format.
      */
-    private function getCerts(string $location, string $cacheKey): array {
-        $cacheItem = $this->cache->getItem($cacheKey);
+    private function getCerts(string $location, string $cacheKey): array
+    {
+        $cacheItem = $this->cache->getItem($this->cachePrefix . $cacheKey);
         $certs = $cacheItem ? $cacheItem->get() : null;
 
         $gotNewCerts = false;
@@ -298,11 +331,6 @@ class GoogleAuth
         }
 
         if (!isset($certs['keys'])) {
-            if ($location !== self::IAP_JWK_URI) {
-                throw new InvalidArgumentException(
-                    'federated sign-on certs expects "keys" to be set'
-                );
-            }
             throw new InvalidArgumentException(
                 'certs expects "keys" to be set'
             );
@@ -316,7 +344,40 @@ class GoogleAuth
             $this->cache->save($cacheItem);
         }
 
-        return $certs['keys'];
+        return $certs;
+    }
+
+    /**
+     * Identifies the expected algorithm to verify by looking at the "alg" key
+     * of the provided certs.
+     *
+     * @param array $certs Certificate array according to the JWK spec (see
+     *                     https://tools.ietf.org/html/rfc7517).
+     * @return string The expected algorithm, such as "ES256" or "RS256".
+     */
+    private function determineAlg(array $certs): string
+    {
+        $alg = null;
+        foreach ($certs['keys'] as $cert) {
+            if (empty($cert['alg'])) {
+                throw new InvalidArgumentException(
+                    'certs expects "alg" to be set'
+                );
+            }
+            $alg = $alg ?: $cert['alg'];
+
+            if ($alg != $cert['alg']) {
+                throw new InvalidArgumentException(
+                    'More than one alg detected in certs'
+                );
+            }
+        }
+        if (!in_array($alg, ['RS256', 'ES256'])) {
+            throw new InvalidArgumentException(
+                'unrecognized "alg" in certs, expected ES256 or RS256'
+            );
+        }
+        return $alg;
     }
 
     /**
@@ -354,22 +415,6 @@ class GoogleAuth
     }
 
     /**
-     * Generate a cache key based on the cert location using sha1 with the
-     * exception of using "federated_signon_certs_v3" to preserve BC.
-     *
-     * @param string $certsLocation
-     * @return string
-     */
-    private function getCacheKeyFromCertLocation($certsLocation)
-    {
-        $key = $certsLocation === self::OIDC_CERT_URI
-            ? 'federated_signon_certs_v3'
-            : sha1($certsLocation);
-
-        return 'google_auth_certs_cache|' . $key;
-    }
-
-    /**
      * Revoke an OAuth2 access token or refresh token. This method will revoke the current access
      * token, if a token isn't provided.
      *
@@ -378,11 +423,11 @@ class GoogleAuth
      */
     public function revoke($token): bool
     {
-        $oauth = new OAuth2([
+        $oauth2 = new OAuth2([
             'tokenRevokeUri' => self::TOKEN_REVOKE_URI,
+            'httpClient' => $this->httpClient,
         ]);
-
-        return $oauth->revoke($token);
+        return $oauth2->revoke($token);
     }
 
     /**

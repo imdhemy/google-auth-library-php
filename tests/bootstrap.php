@@ -36,32 +36,29 @@ function httpClientWithResponses(array $mockResponses = [])
 
 function httpClientFromCallable(callable $httpHandler): ClientInterface
 {
-    return new HttpClientImpl($httpHandler);
-}
+    return new class($httpHandler) implements ClientInterface {
+        private $httpHandler;
 
-class HttpClientImpl implements ClientInterface
-{
-    private $httpHandler;
+        public function __construct(callable $httpHandler)
+        {
+            $this->httpHandler = $httpHandler;
+        }
 
-    public function __construct(callable $httpHandler)
-    {
-        $this->httpHandler = $httpHandler;
-    }
+        public function send(
+            RequestInterface $request,
+            array $options = []
+        ) : ResponseInterface
+        {
+            $httpHandler = $this->httpHandler;
+            return $httpHandler($request);
+        }
 
-    public function send(
-        RequestInterface $request,
-        array $options = []
-    ) : ResponseInterface
-    {
-        $httpHandler = $this->httpHandler;
-        return $httpHandler($request);
-    }
-
-    public function sendAsync(
-        RequestInterface $request,
-        array $options = []
-    ) : PromiseInterface
-    {
-        // no op
-    }
+        public function sendAsync(
+            RequestInterface $request,
+            array $options = []
+        ) : PromiseInterface
+        {
+            // no op
+        }
+    };
 }

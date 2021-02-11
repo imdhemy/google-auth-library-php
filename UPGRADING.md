@@ -64,6 +64,27 @@ $httpClient = new Google\Http\Client\GuzzleClient($guzzle);
 $auth = new GoogleAuth(['httpClient' => $httpClient]);
 ```
 
+#### Improved JWT handling
+
+*   Provides an abstraction from `firebase/jwt`, `phpseclib/phpseclib`, and `kelvinmo/simplejwt`
+    *   Using the composer "[replace](https://stackoverflow.com/questions/18882201/how-does-the-replace-property-work-with-composer)" keyword, users can ignore sub-dependencies such as Firebase JWT in favor of a separate JWT library
+    *   **TODO**: Provide documentation on how to use a different library
+*   Adds `JwtClientInterface` and `FirebaseJwtClient`
+
+**Example**
+
+```php
+$jwt = new class implements Google\Auth\Jwt\JwtClientInterface {
+    public function encode($payload, $signingKey, $signingAlg, $keyId) {
+        // encode method
+    }
+
+    // ... other JWT hander interface methods go here ...
+};
+$googleAuth = new GoogleAuth(['jwtClient' => $jwt]);
+$googleAuth->verify($someJwt);
+```
+
 #### New `GoogleAuth` class
 
 `GoogleAuth` replaces `ApplicationDefaultCredentials`, and provides a

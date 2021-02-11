@@ -20,7 +20,10 @@ declare(strict_types=1);
 namespace Google\Auth;
 
 use Firebase\JWT\JWT;
+use Firebase\JWT\JWK;
 use Google\Auth\Http\ClientFactory;
+use Google\Auth\Jwt\FirebaseJwtClient;
+use Google\Auth\Jwt\JwtClientInterface;
 use GuzzleHttp\Psr7;
 use GuzzleHttp\Psr7\Request;
 use InvalidArgumentException;
@@ -260,6 +263,11 @@ class OAuth2
     private $httpClient;
 
     /**
+     * @var JwtClientInterface
+     */
+    private $jwtClient;
+
+    /**
      * Create a new OAuthCredentials.
      *
      * The configuration array accepts various options
@@ -326,6 +334,7 @@ class OAuth2
         $opts = array_merge([
             'credentialsFile' => null,
             'httpClient' => null,
+            'jwtClient' => null,
             'expiry' => self::DEFAULT_EXPIRY_SECONDS,
             'extensionParams' => [],
             'authorizationUri' => null,
@@ -369,6 +378,8 @@ class OAuth2
         }
 
         $this->httpClient = $opts['httpClient'] ?: ClientFactory::build();
+        $this->jwtClient = $opts['jwtClient']
+            ?: new FirebaseJwtClient(new JWT(), new JWK());
         $this->setAuthorizationUri($opts['authorizationUri']);
         $this->setRedirectUri($opts['redirectUri']);
         $this->setTokenCredentialUri($opts['tokenCredentialUri']);
@@ -430,7 +441,7 @@ class OAuth2
         }
         $assertion += $this->getAdditionalClaims();
 
-        return JWT::encode(
+        return $this->jwtClient->encode(
             $assertion,
             $this->getSigningKey(),
             $this->getSigningAlgorithm(),
@@ -623,192 +634,6 @@ class OAuth2
         if (array_key_exists('refresh_token', $opts)) {
             $this->setRefreshToken($opts['refresh_token']);
         }
-    }
-
-    /**
-     * Verifies an id token and returns the authenticated apiLoginTicket.
-     * Throws an exception if the id token is not valid.
-     * The audience parameter can be used to control which id tokens are
-     * accepted.  By default, the id token must have been issued to this OAuth2 client.
-     *
-     * @param string $token The JSON Web Token to be verified.
-     * @param array $certs Certificate array according to the JWK spec (see
-     *        https://tools.ietf.org/html/rfc7517).
-     * @param array $options [optional] Configuration options.
-     * @param string $options.audience The indended recipient of the token.
-     * @param string $options.issuer The intended issuer of the token.
-     * @return array the token payload.
-     * @throws InvalidArgumentException If certs could not be retrieved from a local file.
-     * @throws InvalidArgumentException If received certs are in an invalid format.
-     * @throws InvalidArgumentException If the cert alg is not supported.
-     * @throws RuntimeException If certs could not be retrieved from a remote location.
-     * @throws UnexpectedValueException If the token issuer does not match.
-     * @throws UnexpectedValueException If the token audience does not match.
-     */
-    public function verify(
-        string $token,
-        array $certs,
-        array $options = []
-    ): array {
-        $audience = isset($options['audience'])
-            ? $options['audience']
-            : null;
-        $issuer = isset($options['issuer'])
-            ? $options['issuer']
-            : null;
-
-        // Check signature against each available cert.
-        $alg = $this->determineAlg($certs);
-        if (!in_array($alg, ['RS256', 'ES256'])) {
-            throw new InvalidArgumentException(
-                'unrecognized "alg" in certs, expected ES256 or RS256'
-            );
-        }
-
-        if ($alg == 'RS256') {
-            return $this->verifyRs256($token, $certs, $audience, $issuer);
-        }
-
-        return $this->verifyEs256($token, $certs, $audience, $issuer);
-    }
-
-    /**
-     * Verifies an ES256-signed JWT.
-     *
-     * @param string $token The JSON Web Token to be verified.
-     * @param array $certs Certificate array according to the JWK spec (see
-     *        https://tools.ietf.org/html/rfc7517).
-     * @param string|null $audience If set, returns false if the provided
-     *        audience does not match the "aud" claim on the JWT.
-     * @param string|null $issuer If set, returns false if the provided
-     *        issuer does not match the "iss" claim on the JWT.
-     * @return array the token payload.
-     */
-    private function verifyEs256(
-        string $token,
-        array $certs,
-        $audience = null,
-        $issuer = null
-    ): array {
-        $this->checkSimpleJwt();
-
-        $jwkset = new KeySet();
-        foreach ($certs as $cert) {
-            $jwkset->add(KeyFactory::create($cert, 'php'));
-        }
-
-        // Validate the signature using the key set and ES256 algorithm.
-        $jwt = $this->callSimpleJwtDecode([$token, $jwkset, 'ES256']);
-        $payload = $jwt->getClaims();
-
-        if (isset($payload['aud'])) {
-            if ($audience && $payload['aud'] != $audience) {
-                throw new UnexpectedValueException('Audience does not match');
-            }
-        }
-
-        // @see https://cloud.google.com/iap/docs/signed-headers-howto#verifying_the_jwt_payload
-        $issuer = $issuer ?: self::IAP_ISSUER;
-        if (!isset($payload['iss']) || $payload['iss'] !== $issuer) {
-            throw new UnexpectedValueException('Issuer does not match');
-        }
-
-        return $payload;
-    }
-
-    /**
-     * Verifies an RS256-signed JWT.
-     *
-     * @param string $token The JSON Web Token to be verified.
-     * @param array $certs Certificate array according to the JWK spec (see
-     *        https://tools.ietf.org/html/rfc7517).
-     * @param string|null $audience If set, returns false if the provided
-     *        audience does not match the "aud" claim on the JWT.
-     * @param string|null $issuer If set, returns false if the provided
-     *        issuer does not match the "iss" claim on the JWT.
-     * @return array the token payload.
-     */
-    private function verifyRs256(
-        string $token,
-        array $certs,
-        $audience = null,
-        $issuer = null
-    ) {
-        $this->checkAndInitializePhpsec();
-        $keys = [];
-        foreach ($certs as $cert) {
-            if (empty($cert['kid'])) {
-                throw new InvalidArgumentException(
-                    'certs expects "kid" to be set'
-                );
-            }
-            if (empty($cert['n']) || empty($cert['e'])) {
-                throw new InvalidArgumentException(
-                    'RSA certs expects "n" and "e" to be set'
-                );
-            }
-            $rsa = new RSA();
-            $rsa->loadKey([
-                'n' => new BigInteger($this->callJwtStatic('urlsafeB64Decode', [
-                    $cert['n'],
-                ]), 256),
-                'e' => new BigInteger($this->callJwtStatic('urlsafeB64Decode', [
-                    $cert['e']
-                ]), 256),
-            ]);
-
-            // create an array of key IDs to certs for the JWT library
-            $keys[$cert['kid']] =  $rsa->getPublicKey();
-        }
-
-        $payload = $this->callJwtStatic('decode', [
-            $token,
-            $keys,
-            ['RS256']
-        ]);
-
-        if (property_exists($payload, 'aud')) {
-            if ($audience && $payload->aud != $audience) {
-                throw new UnexpectedValueException('Audience does not match');
-            }
-        }
-
-        // support HTTP and HTTPS issuers
-        // @see https://developers.google.com/identity/sign-in/web/backend-auth
-        $issuers = $issuer ? [$issuer] : [self::OAUTH2_ISSUER, self::OAUTH2_ISSUER_HTTPS];
-        if (!isset($payload->iss) || !in_array($payload->iss, $issuers)) {
-            throw new UnexpectedValueException('Issuer does not match');
-        }
-
-        return (array) $payload;
-    }
-
-    /**
-     * Identifies the expected algorithm to verify by looking at the "alg" key
-     * of the provided certs.
-     *
-     * @param array $certs Certificate array according to the JWK spec (see
-     *                     https://tools.ietf.org/html/rfc7517).
-     * @return string The expected algorithm, such as "ES256" or "RS256".
-     */
-    private function determineAlg(array $certs): string
-    {
-        $alg = null;
-        foreach ($certs as $cert) {
-            if (empty($cert['alg'])) {
-                throw new InvalidArgumentException(
-                    'certs expects "alg" to be set'
-                );
-            }
-            $alg = $alg ?: $cert['alg'];
-
-            if ($alg != $cert['alg']) {
-                throw new InvalidArgumentException(
-                    'More than one alg detected in certs'
-                );
-            }
-        }
-        return $alg;
     }
 
     /**
