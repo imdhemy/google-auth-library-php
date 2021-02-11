@@ -68,11 +68,6 @@ trait CredentialsTrait
         return [];
     }
 
-    private function validateOptions(array $options, array $validKeys, array $requiredKeys = [])
-    {
-
-    }
-
     /**
      *
      */

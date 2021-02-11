@@ -26,6 +26,8 @@ namespace Google\Auth\Credentials;
  */
 class AnonymousCredentials implements CredentialsInterface
 {
+    use CredentialsTrait;
+
     /**
      * @var array
      */
@@ -36,23 +38,28 @@ class AnonymousCredentials implements CredentialsInterface
     /**
      * Fetches the auth token. In this case it returns an empty string.
      *
-     * @param callable $httpHandler
-     * @return array A set of auth related metadata, containing the following
-     * keys:
-     *   - access_token (string)
+     * @return array a hash of auth tokens
      */
-    public function fetchAuthToken(callable $httpHandler = null)
+    public function fetchAuthToken(): array
     {
         return $this->token;
     }
-
     /**
-     * Returns the cache key. In this case it returns a null value, disabling
-     * caching.
+     * Get the project ID.
      *
      * @return string|null
      */
-    public function getCacheKey()
+    public function getProjectId(): ?string
+    {
+        return null;
+    }
+
+    /**
+     * Get the quota project used for this API request
+     *
+     * @return string|null
+     */
+    public function getQuotaProject(): ?string
     {
         return null;
     }

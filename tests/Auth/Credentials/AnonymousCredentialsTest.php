@@ -17,30 +17,41 @@
 
 namespace Google\Auth\Tests\Credentials;
 
-use Google\Auth\Credentials\InsecureCredentials;
+use Google\Auth\Credentials\AnonymousCredentials;
 use PHPUnit\Framework\TestCase;
 
 /**
  * @group credentials
- * @group credentials-insecure
  */
 class AnonymousCredentialsTest extends TestCase
 {
     public function testFetchAuthToken()
     {
-        $insecure = new InsecureCredentials();
-        $this->assertEquals(['access_token' => ''], $insecure->fetchAuthToken());
+        $anonymous = new AnonymousCredentials();
+        $this->assertEquals(
+            ['access_token' => ''],
+            $anonymous->fetchAuthToken()
+        );
     }
 
-    public function testGetCacheKey()
+    public function testGetRequestMetadata()
     {
-        $insecure = new InsecureCredentials();
-        $this->assertNull($insecure->getCacheKey());
+        $anonymous = new AnonymousCredentials();
+        $this->assertEquals(
+            ['Authorization' => 'Bearer '],
+            $anonymous->getRequestMetadata()
+        );
     }
 
-    public function testGetLastReceivedToken()
+    public function testGetQuotaProject()
     {
-        $insecure = new InsecureCredentials();
-        $this->assertEquals(['access_token' => ''], $insecure->getLastReceivedToken());
+        $anonymous = new AnonymousCredentials();
+        $this->assertNull($anonymous->getQuotaProject());
+    }
+
+    public function testGetProjectId()
+    {
+        $anonymous = new AnonymousCredentials();
+        $this->assertNull($anonymous->getProjectId());
     }
 }

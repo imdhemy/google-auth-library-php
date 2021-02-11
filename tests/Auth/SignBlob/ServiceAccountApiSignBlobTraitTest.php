@@ -57,7 +57,7 @@ class ServiceAccountApiSignBlobTraitTest extends TestCase
             $expectedDelegates[] = $expectedServiceAccount;
         }
 
-        $httpClient = createHttpClient(function (Psr7\Request $request) use (
+        $httpClient = httpClientFromCallable(function (Psr7\Request $request) use (
             $expectedEmail,
             $expectedAccessToken,
             $expectedString,

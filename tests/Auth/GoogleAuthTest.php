@@ -178,14 +178,14 @@ class GoogleAuthTest extends BaseTest
     {
         $this->expectException('DomainException');
 
-        $keyFile = __DIR__ . '/fixtures' . '/does-not-exist-private.json';
+        $keyFile = __DIR__ . '/does-not-exist-private.json';
         putenv('GOOGLE_APPLICATION_CREDENTIALS=' . $keyFile);
         (new GoogleAuth())->makeCredentials(['scope' => 'a scope']);
     }
 
     public function testLoadsOKIfEnvSpecifiedIsValid()
     {
-        $keyFile = __DIR__ . '/fixtures' . '/private.json';
+        $keyFile = __DIR__ . '/fixtures/private.json';
         putenv('GOOGLE_APPLICATION_CREDENTIALS=' . $keyFile);
         $this->assertNotNull(
             (new GoogleAuth())->makeCredentials(['scope' => 'a scope'])
@@ -194,7 +194,7 @@ class GoogleAuthTest extends BaseTest
 
     public function testLoadsDefaultFileIfPresentAndEnvVarIsNotSet()
     {
-        putenv('HOME=' . __DIR__ . '/fixtures');
+        putenv('HOME=' . __DIR__ . '/fixtures/gcloud1');
         $this->assertNotNull(
             (new GoogleAuth())->makeCredentials(['scope' => 'a scope'])
         );
@@ -274,7 +274,7 @@ class GoogleAuthTest extends BaseTest
 
     public function testUserRefreshCredentials()
     {
-        putenv('HOME=' . __DIR__ . '/fixtures2');
+        putenv('HOME=' . __DIR__ . '/fixtures/gcloud2');
 
         $credentials = (new GoogleAuth())->makeCredentials();
 
@@ -283,7 +283,7 @@ class GoogleAuthTest extends BaseTest
 
     public function testServiceAccountCredentialsDoNotUseDefaultScope()
     {
-        putenv('HOME=' . __DIR__ . '/fixtures');
+        putenv('HOME=' . __DIR__ . '/fixtures/gcloud1');
 
         $credentials = (new GoogleAuth())->makeCredentials([
             'defaultScope' => 'a-default-scope',
@@ -334,28 +334,6 @@ class GoogleAuthTest extends BaseTest
 
 
     // TODO: Refactor Middleware Tests
-
-    public function testSuccedsIfNoDefaultFilesButIsOnCompute()
-    {
-        $wantedTokens = [
-            'access_token' => '1/abdef1234567890',
-            'expires_in' => '57',
-            'token_type' => 'Bearer',
-        ];
-        $jsonTokens = json_encode($wantedTokens);
-
-        // simulate the response from GCE.
-        $httpClient = httpClientWithResponses([
-            new Response(200, ['Metadata-Flavor' => 'Google']),
-            new Response(200, [], Psr7\stream_for($jsonTokens)),
-        ]);
-
-        $googleAuth = new GoogleAuth(['httpClient' => $httpClient]);
-        $client = $googleAuth->makeHttpClient('a scope');
-
-        $this->assertNotNull($client);
-    }
-
 
     // /**
     //  * @expectedException DomainException
@@ -504,7 +482,7 @@ class GoogleAuthTest extends BaseTest
 
     public function testWithServiceAccountCredentialsAndExplicitQuotaProject()
     {
-        $keyFile = __DIR__ . '/fixtures' . '/private.json';
+        $keyFile = __DIR__ . '/fixtures/private.json';
         putenv('GOOGLE_APPLICATION_CREDENTIALS=' . $keyFile);
 
         $credentials = (new GoogleAuth())->makeCredentials([
@@ -520,7 +498,7 @@ class GoogleAuthTest extends BaseTest
 
     public function testGetCredentialsUtilizesQuotaProjectInKeyFile()
     {
-        $keyFile = __DIR__ . '/fixtures' . '/private.json';
+        $keyFile = __DIR__ . '/fixtures/private.json';
         putenv('GOOGLE_APPLICATION_CREDENTIALS=' . $keyFile);
 
         $credentials = (new GoogleAuth())->makeCredentials();
@@ -533,7 +511,7 @@ class GoogleAuthTest extends BaseTest
 
     public function testWithFetchAuthTokenCacheAndExplicitQuotaProject()
     {
-        $keyFile = __DIR__ . '/fixtures' . '/private.json';
+        $keyFile = __DIR__ . '/fixtures/private.json';
         putenv('GOOGLE_APPLICATION_CREDENTIALS=' . $keyFile);
 
         $httpClient = httpClientWithResponses([

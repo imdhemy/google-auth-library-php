@@ -44,7 +44,7 @@ class SACJwtAccessTest extends TestCase
     public function setUp(): void
     {
         $this->privateKey =
-            file_get_contents(__DIR__ . '/../fixtures' . '/private.pem');
+            file_get_contents(__DIR__ . '/../fixtures/private.pem');
     }
 
     private function createTestJson()
@@ -60,13 +60,13 @@ class SACJwtAccessTest extends TestCase
      */
     public function testFailsToInitalizeFromANonExistentFile()
     {
-        $keyFile = __DIR__ . '/../fixtures' . '/does-not-exist-private.json';
+        $keyFile = __DIR__ . '/does-not-exist-private.json';
         new ServiceAccountJwtAccessCredentials($keyFile);
     }
 
     public function testInitalizeFromAFile()
     {
-        $keyFile = __DIR__ . '/../fixtures' . '/private.json';
+        $keyFile = __DIR__ . '/../fixtures/private.json';
         $this->assertNotNull(
             new ServiceAccountJwtAccessCredentials($keyFile)
         );
@@ -217,7 +217,7 @@ class SACJwtAccessComboTest extends TestCase
     public function setUp(): void
     {
         $this->privateKey =
-            file_get_contents(__DIR__ . '/../fixtures' . '/private.pem');
+            file_get_contents(__DIR__ . '/../fixtures/private.pem');
     }
 
     private function createTestJson()
@@ -327,7 +327,7 @@ class SACJWTGetQuotaProjectTest extends TestCase
 {
     public function testGetQuotaProject()
     {
-        $keyFile = __DIR__ . '/../fixtures' . '/private.json';
+        $keyFile = __DIR__ . '/../fixtures/private.json';
         $sa = new ServiceAccountJwtAccessCredentials($keyFile);
         $this->assertEquals('test_quota_project', $sa->getQuotaProject());
     }
