@@ -67,7 +67,7 @@ class ComputeCredentials implements
     /**
      * The metadata path of the default token.
      */
-    private const TOKEN_URI_PATH = 'v1/instance/service-accounts/default/token';
+    private const ACCESS_TOKEN_URI_PATH = 'v1/instance/service-accounts/default/token';
 
     /**
      * The metadata path of the default id token.
@@ -90,6 +90,11 @@ class ComputeCredentials implements
     private const FLAVOR_HEADER = 'Metadata-Flavor';
 
     /**
+     * The cache key to use for build-in cache
+     */
+    private const CACHE_KEY = 'GOOGLE_AUTH_PHP_GCE';
+
+    /**
      * @var string|null
      */
     private $clientEmail;
@@ -100,14 +105,14 @@ class ComputeCredentials implements
     private $projectId;
 
     /**
-     * @var string
-     */
-    private $tokenUri;
-
-    /**
-     * @var string
+     * @var string|null
      */
     private $targetAudience;
+
+    /**
+     * @var array|null
+     */
+    private $scope;
 
     /**
      * @var string|null
@@ -138,13 +143,11 @@ class ComputeCredentials implements
     public function __construct(array $options = [])
     {
         $options += [
+            'httpClient' => null,
+            'quotaProject' => null,
+            'serviceAccountIdentity' => null,
             'scope' => null,
             'targetAudience' => null,
-            'quotaProject' => null,
-            'httpClient' => null,
-            'serviceAccountIdentity' => null,
-            'cache' => null,
-            'lifetime' => null,
         ];
 
         if (isset($options['scope']) && isset($options['targetAudience'])) {
@@ -153,56 +156,46 @@ class ComputeCredentials implements
             );
         }
 
-        if ($options['targetAudience']) {
-            $tokenUri = self::getIdTokenUri($options['serviceAccountIdentity']);
-            $tokenUri = sprintf(
-                'http://%s/computeMetadata/%s?audience=%s',
-                self::METADATA_IP,
-                self::ID_TOKEN_URI_PATH,
-                $options['targetAudience']
-            );
-            $this->targetAudience = $options['targetAudience'];
-        } else {
-            $tokenUri = self::getAccessTokenUri($options['serviceAccountIdentity']);
-            if ($options['scope']) {
-                if (is_string($options['scope'])) {
-                    $options['scope'] = explode(' ', $options['scope']);
-                }
+        $this->setCacheFromOptions($options);
 
-                $options['scope'] = implode(',', $options['scope']);
-                $tokenUri = $tokenUri . '?scopes='. $options['scope'];
-            }
-        }
-
-        $this->tokenUri = $tokenUri;
-
-        $this->quotaProject = $options['quotaProject'];
         $this->httpClient = $options['httpClient'] ?: ClientFactory::build();
+        $this->quotaProject = $options['quotaProject'];
         $this->serviceAccountIdentity = $options['serviceAccountIdentity'];
+        $this->scope = is_string($options['scope'])
+            ? explode(' ', $options['scope'])
+            : $options['scope'];
+        $this->targetAudience = $options['targetAudience'];
     }
 
     /**
-     * The full uri for accessing the default token.
+     * The full uri for accessing the auth token.
      *
-     * @param strin|null $serviceAccountIdentity [optional] Specify a service
-     *   account identity name to use instead of "default".
      * @return string
      */
 
-    private static function getAccessTokenUri(
-        string $serviceAccountIdentity = null
-    ): string {
-        $base = 'http://' . self::METADATA_IP . '/computeMetadata/';
-        $base .= self::TOKEN_URI_PATH;
+    private function getTokenUri(): string
+    {
+        $tokenUri = 'http://' . self::METADATA_IP . '/computeMetadata/';
 
-        if ($serviceAccountIdentity) {
+        if ($this->targetAudience) {
+            $tokenUri .= self::ID_TOKEN_URI_PATH;
+            $tokenUri .= '?audience=' . $this->targetAudience;
+        } else {
+            $tokenUri .= self::ACCESS_TOKEN_URI_PATH;
+            if ($this->scope) {
+                $tokenUri .= '?scopes=' . implode(',', $this->scope);
+            }
+        }
+
+        if ($this->serviceAccountIdentity) {
             return str_replace(
                 '/default/',
-                '/' . $serviceAccountIdentity . '/',
-                $base
+                '/' . $this->serviceAccountIdentity . '/',
+                $tokenUri
             );
         }
-        return $base;
+
+        return $tokenUri;
     }
 
     /**
@@ -213,7 +206,10 @@ class ComputeCredentials implements
      */
     public static function onAppEngineFlexible(): bool
     {
-        return substr(getenv('GAE_INSTANCE'), 0, 4) === 'aef-';
+        if ($gaeInstance = getenv('GAE_INSTANCE')) {
+            return substr($gaeInstance, 0, 4) === 'aef-';
+        }
+        return false;
     }
 
     /**
@@ -288,7 +284,11 @@ class ComputeCredentials implements
      */
     public function fetchAuthToken(): array
     {
-        $response = $this->getFromMetadata($this->tokenUri);
+        if ($cachedToken = $this->getCachedValue($this->getCacheKey())) {
+            return $cachedToken;
+        }
+
+        $response = $this->getFromMetadata($this->getTokenUri());
 
         if ($this->targetAudience) {
             return ['id_token' => $response];
@@ -300,8 +300,7 @@ class ComputeCredentials implements
 
         $json['expires_at'] = time() + $json['expires_in'];
 
-        // store this so we can retrieve it later
-        $this->lastReceivedToken = $json;
+        $this->setCachedValue($this->getCacheKey(), $json);
 
         return $json;
     }
@@ -374,6 +373,11 @@ class ComputeCredentials implements
         return $this->quotaProject;
     }
 
+    private function getCacheKey()
+    {
+        return self::CACHE_KEY;
+    }
+
     /**
      * Fetch the value of a GCE metadata server URI.
      *
@@ -428,28 +432,5 @@ class ComputeCredentials implements
         }
 
         return $base;
-    }
-
-    /**
-     * The full uri for accesesing the default identity token.
-     *
-     * @param string $serviceAccountIdentity [optional] Specify a service
-     *   account identity name to use instead of "default".
-     * @return string
-     */
-    private static function getIdTokenUri($serviceAccountIdentity = null): string
-    {
-        $base = 'http://' . self::METADATA_IP . '/computeMetadata/';
-        $base .= self::ID_TOKEN_URI_PATH;
-        if ($serviceAccountIdentity) {
-            return str_replace(
-                '/default/',
-                '/' . $serviceAccountIdentity . '/',
-                $base
-            );
-        }
-
-        return $base;
-
     }
 }

@@ -30,6 +30,8 @@ use Psr\Cache\CacheItemPoolInterface;
  */
 trait CredentialsTrait
 {
+    private $maxCacheKeyLength = 64;
+
     /**
      * @var ClientInterface
      */
@@ -53,12 +55,9 @@ trait CredentialsTrait
     /**
      * Returns request headers containing the authorization token
      *
-     * @param ClientInterface $httpHandler
      * @return array
      */
-    public function getRequestMetadata(
-        ClientInterface $httpHandler = null
-    ): array
+    public function getRequestMetadata(): array
     {
         $result = $this->fetchAuthToken($httpHandler);
         if (isset($result['access_token'])) {
@@ -101,10 +100,10 @@ trait CredentialsTrait
         } else {
             $this->cache = new MemoryCacheItemPool();
         }
-        if (array_has_key($options['cacheLifetime'])) {
+        if (array_key_exists('cacheLifetime', $options)) {
             $this->cacheLifetime = (int) $options['cacheLifetime'];
         }
-        if (array_has_key($options['cachePrefix'])) {
+        if (array_key_exists('cachePrefix', $options)) {
             $this->cachePrefix = (string) $options['cachePrefix'];
         }
     }
@@ -113,16 +112,13 @@ trait CredentialsTrait
      * Gets the cached value if it is present in the cache when that is
      * available.
      */
-    private function getCachedValue($k)
+    private function getCachedValue(string $k)
     {
         if (is_null($this->cache)) {
-            return;
+            throw new \LogicException('Cache has not been initialized');
         }
 
         $key = $this->getFullCacheKey($k);
-        if (is_null($key)) {
-            return;
-        }
 
         $cacheItem = $this->cache->getItem($key);
         if ($cacheItem->isHit()) {
@@ -133,16 +129,13 @@ trait CredentialsTrait
     /**
      * Saves the value in the cache when that is available.
      */
-    private function setCachedValue($k, $v)
+    private function setCachedValue(string $k, $v): bool
     {
         if (is_null($this->cache)) {
-            return;
+            return false;
         }
 
         $key = $this->getFullCacheKey($k);
-        if (is_null($key)) {
-            return;
-        }
 
         $cacheItem = $this->cache->getItem($key);
         $cacheItem->set($v);
@@ -150,10 +143,10 @@ trait CredentialsTrait
         return $this->cache->save($cacheItem);
     }
 
-    private function getFullCacheKey($key)
+    private function getFullCacheKey(string $key): string
     {
-        if (is_null($key)) {
-            return;
+        if (empty($key)) {
+            throw new \LogicException('Cache key cannot be empty');
         }
 
         $key = $this->cachePrefix . $key;
@@ -162,8 +155,8 @@ trait CredentialsTrait
         $key = preg_replace('|[^a-zA-Z0-9_\.!]|', '', $key);
 
         // Hash keys if they exceed $maxKeyLength (defaults to 64)
-        if (self::MAX_KEY_LENGTH && strlen($key) > self::MAX_KEY_LENGTH) {
-            $key = substr(hash('sha256', $key), 0, self::MAX_KEY_LENGTH);
+        if (strlen($key) > $this->maxCacheKeyLength) {
+            $key = substr(hash('sha256', $key), 0, $this->maxCacheKeyLength);
         }
 
         return $key;

@@ -1352,41 +1352,6 @@ class OAuth2
     }
 
     /**
-     * The expiration of the last received token.
-     *
-     * @return array|null
-     */
-    public function getLastReceivedToken(): ?array
-    {
-        if ($token = $this->getAccessToken()) {
-            // the bare necessity of an auth token
-            $authToken = [
-                'access_token' => $token,
-                'expires_at' => $this->getExpiresAt(),
-            ];
-        } elseif ($idToken = $this->getIdToken()) {
-            $authToken = [
-                'id_token' => $idToken,
-                'expires_at' => $this->getExpiresAt(),
-            ];
-        } else {
-            return null;
-        }
-
-        if ($expiresIn = $this->getExpiresIn()) {
-            $authToken['expires_in'] = $expiresIn;
-        }
-        if ($issuedAt = $this->getIssuedAt()) {
-            $authToken['issued_at'] = $issuedAt;
-        }
-        if ($refreshToken = $this->getRefreshToken()) {
-            $authToken['refresh_token'] = $refreshToken;
-        }
-
-        return $authToken;
-    }
-
-    /**
      * @param string $uri
      * @return null|UriInterface
      */

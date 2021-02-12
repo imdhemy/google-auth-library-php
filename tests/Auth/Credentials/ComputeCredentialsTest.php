@@ -20,161 +20,167 @@ namespace Google\Auth\Tests\Credentials;
 use Google\Auth\Credentials\ComputeCredentials;
 use Google\Auth\HttpHandler\HttpClientCache;
 use Google\Auth\Tests\BaseTest;
-use GuzzleHttp\Psr7;
+use GuzzleHttp\Psr7\Response;
 use Prophecy\Argument;
 
 /**
  * @group credentials
- * @group credentials-gce
+ * @group credentials-compute
  */
 class ComputeCredentialsTest extends BaseTest
 {
-    public function testOnGceMetadataFlavorHeader()
+    public function testOnComputeMetadataFlavorHeader()
     {
         $hasHeader = false;
-        $dummyHandler = function ($request) use (&$hasHeader) {
-            $hasHeader = $request->getHeaderLine(ComputeCredentials::FLAVOR_HEADER) === 'Google';
+        $httpClient = httpClientFromCallable(
+            function ($request) use (&$hasHeader) {
+                $hasHeader = $request->getHeaderLine('Metadata-Flavor') === 'Google';
 
-            return new Psr7\Response(200, [ComputeCredentials::FLAVOR_HEADER => 'Google']);
-        };
+                return new Response(200, ['Metadata-Flavor' => 'Google']);
+            }
+        );
 
-        $onGce = ComputeCredentials::onGce($dummyHandler);
+        $onCompute = ComputeCredentials::onCompute($httpClient);
         $this->assertTrue($hasHeader);
-        $this->assertTrue($onGce);
+        $this->assertTrue($onCompute);
     }
 
-    public function testOnGCEIsFalseOnClientErrorStatus()
+    public function testOnComputeIsFalseOnClientErrorStatus()
     {
         // simulate retry attempts by returning multiple 400s
-        $httpHandler = getHandler([
-            buildResponse(400),
-            buildResponse(400),
-            buildResponse(400)
+        $httpClient = httpClientWithResponses([
+            new Response(400),
+            new Response(400),
+            new Response(400)
         ]);
-        $this->assertFalse(ComputeCredentials::onGCE($httpHandler));
+        $this->assertFalse(ComputeCredentials::onCompute($httpClient));
     }
 
-    public function testOnGCEIsFalseOnServerErrorStatus()
+    public function testOnComputeIsFalseOnServerErrorStatus()
     {
         // simulate retry attempts by returning multiple 500s
-        $httpHandler = getHandler([
-            buildResponse(500),
-            buildResponse(500),
-            buildResponse(500)
+        $httpClient = httpClientWithResponses([
+            new Response(500),
+            new Response(500),
+            new Response(500)
         ]);
-        $this->assertFalse(ComputeCredentials::onGCE($httpHandler));
+        $this->assertFalse(ComputeCredentials::onCompute($httpClient));
     }
 
-    public function testOnGCEIsFalseOnOkStatusWithoutExpectedHeader()
+    public function testOnComputeIsFalseOnOkStatusWithoutExpectedHeader()
     {
-        $httpHandler = getHandler([
-            buildResponse(200),
+        $httpClient = httpClientWithResponses([
+            new Response(200),
         ]);
-        $this->assertFalse(ComputeCredentials::onGCE($httpHandler));
+        $this->assertFalse(ComputeCredentials::onCompute($httpClient));
     }
 
-    public function testOnGCEIsOkIfGoogleIsTheFlavor()
+    public function testOnComputeIsOkIfGoogleIsTheFlavor()
     {
-        $httpHandler = getHandler([
-            buildResponse(200, [ComputeCredentials::FLAVOR_HEADER => 'Google']),
+        $httpClient = httpClientWithResponses([
+            new Response(200, ['Metadata-Flavor' => 'Google']),
         ]);
-        $this->assertTrue(ComputeCredentials::onGCE($httpHandler));
+        $this->assertTrue(ComputeCredentials::onCompute($httpClient));
     }
 
-    public function testOnAppEngineFlexIsFalseByDefault()
+    /**
+     * @runInSeparateProcess
+     */
+    public function testOnAppEngineFlexIsFalseWhenGaeInstanceIsEmpty()
     {
+        putenv('GAE_INSTANCE=');
         $this->assertFalse(ComputeCredentials::onAppEngineFlexible());
     }
 
+    /**
+     * @runInSeparateProcess
+     */
+    public function testOnAppEngineFlexIsFalseWhenGaeInstanceIsNotAef()
+    {
+        putenv('GAE_INSTANCE=not-aef-20180313t154438');
+        $this->assertFalse(ComputeCredentials::onAppEngineFlexible());
+    }
+
+    /**
+     * @runInSeparateProcess
+     */
     public function testOnAppEngineFlexIsTrueWhenGaeInstanceHasAefPrefix()
     {
         putenv('GAE_INSTANCE=aef-default-20180313t154438');
         $this->assertTrue(ComputeCredentials::onAppEngineFlexible());
-        putenv('GAE_INSTANCE');
     }
 
-    public function testGetCacheKeyShouldNotBeEmpty()
+    public function testFetchAuthTokenThrowsExceptionIfNotOnCompute()
     {
-        $g = new ComputeCredentials();
-        $this->assertNotEmpty($g->getCacheKey());
-    }
+        $this->expectException('GuzzleHttp\Exception\ServerException');
 
-    public function testFetchAuthTokenShouldBeEmptyIfNotOnGCE()
-    {
         // simulate retry attempts by returning multiple 500s
-        $httpHandler = getHandler([
-            buildResponse(500),
-            buildResponse(500),
-            buildResponse(500)
-        ]);
-        $g = new ComputeCredentials();
-        $this->assertEquals(array(), $g->fetchAuthToken($httpHandler));
+        $httpClient = httpClientWithResponses([new Response(500)]);
+        $compute = new ComputeCredentials(['httpClient' => $httpClient]);
+        $this->assertEquals(array(), $compute->fetchAuthToken());
     }
 
-    /**
-     * @expectedException Exception
-     * @expectedExceptionMessage Invalid JSON response
-     */
     public function testFetchAuthTokenShouldFailIfResponseIsNotJson()
     {
+        $this->expectException('Exception');
+        $this->expectExceptionMessage('Invalid JSON response');
+
         $notJson = '{"foo": , this is cannot be passed as json" "bar"}';
-        $httpHandler = getHandler([
-            buildResponse(200, [ComputeCredentials::FLAVOR_HEADER => 'Google']),
-            buildResponse(200, [], $notJson),
+        $httpClient = httpClientWithResponses([
+            new Response(200, [], $notJson),
         ]);
-        $g = new ComputeCredentials();
-        $g->fetchAuthToken($httpHandler);
+        $compute = new ComputeCredentials(['httpClient' => $httpClient]);
+        $compute->fetchAuthToken();
     }
 
     public function testFetchAuthTokenShouldReturnTokenInfo()
     {
-        $wantedTokens = [
+        $wantedToken = [
             'access_token' => '1/abdef1234567890',
             'expires_in' => '57',
             'token_type' => 'Bearer',
+            'expires_at' => time() + 57,
         ];
-        $jsonTokens = json_encode($wantedTokens);
-        $httpHandler = getHandler([
-            buildResponse(200, [ComputeCredentials::FLAVOR_HEADER => 'Google']),
-            buildResponse(200, [], Psr7\stream_for($jsonTokens)),
+        $jsonTokens = json_encode($wantedToken);
+        $httpClient = httpClientWithResponses([
+            new Response(200, [], $jsonTokens),
         ]);
 
-        $g = new ComputeCredentials();
-        $this->assertEquals($wantedTokens, $g->fetchAuthToken($httpHandler));
-        $this->assertEquals(time() + 57, $g->getLastReceivedToken()['expires_at']);
+        $compute = new ComputeCredentials(['httpClient' => $httpClient]);
+        $this->assertEquals($wantedToken, $compute->fetchAuthToken());
     }
 
     public function testFetchAuthTokenShouldBeIdTokenWhenTargetAudienceIsSet()
     {
         $expectedToken = ['id_token' => 'idtoken12345'];
-        $timesCalled = 0;
-        $httpHandler = function ($request) use (&$timesCalled, $expectedToken) {
-            $timesCalled++;
-            if ($timesCalled == 1) {
-                return new Psr7\Response(200, [ComputeCredentials::FLAVOR_HEADER => 'Google']);
+        $httpClient = httpClientFromCallable(
+            function ($request) use ($expectedToken) {
+                $this->assertEquals(
+                    '/computeMetadata/v1/instance/service-accounts/default/identity',
+                    $request->getUri()->getPath()
+                );
+                $this->assertEquals(
+                    'audience=a-target-audience',
+                    $request->getUri()->getQuery()
+                );
+                return new Response(200, [], $expectedToken['id_token']);
             }
-            $this->assertEquals(
-                '/computeMetadata/' . ComputeCredentials::ID_TOKEN_URI_PATH,
-                $request->getUri()->getPath()
-            );
-            $this->assertEquals(
-                'audience=a+target+audience',
-                $request->getUri()->getQuery()
-            );
-            return new Psr7\Response(200, [], Psr7\stream_for($expectedToken['id_token']));
-        };
-        $g = new ComputeCredentials(null, null, 'a+target+audience');
-        $this->assertEquals($expectedToken, $g->fetchAuthToken($httpHandler));
-        $this->assertEquals(2, $timesCalled);
+        );
+        $compute = new ComputeCredentials([
+            'httpClient' => $httpClient,
+            'targetAudience' => 'a-target-audience'
+        ]);
+        $this->assertEquals($expectedToken, $compute->fetchAuthToken());
     }
 
-    /**
-     * @expectedException InvalidArgumentException
-     * @expectedExceptionMessage Scope and targetAudience cannot both be supplied
-     */
     public function testSettingBothScopeAndTargetAudienceThrowsException()
     {
-        $g = new ComputeCredentials(null, 'a-scope', 'a+target+audience');
+        $this->expectException('InvalidArgumentException');
+        $this->expectExceptionMessage('Scope and targetAudience cannot both be supplied');
+        $compute = new ComputeCredentials([
+            'scope' => 'a-scope',
+            'targetAudience' => 'a-target-audience',
+        ]);
     }
 
     /**
@@ -182,25 +188,19 @@ class ComputeCredentialsTest extends BaseTest
      */
     public function testFetchAuthTokenCustomScope($scope, $expected)
     {
-        $this->onlyGuzzle6And7();
-
         $uri = null;
-        $client = $this->prophesize('GuzzleHttp\ClientInterface');
-        $client->send(Argument::any(), Argument::any())
-            ->will(function () use (&$uri) {
-                $this->send(Argument::any(), Argument::any())->will(function ($args) use (&$uri) {
-                    $uri = $args[0]->getUri();
+        $httpClient = httpClientFromCallable(function ($request) use (&$uri) {
+            $uri = $request->getUri();
 
-                    return buildResponse(200, [], Psr7\stream_for('{"expires_in": 0}'));
-                });
+            return new Response(200, [], '{"expires_in": 0}');
+        });
 
-                return buildResponse(200, [ComputeCredentials::FLAVOR_HEADER => 'Google']);
-            });
+        $compute = new ComputeCredentials([
+            'scope' => $scope,
+            'httpClient' => $httpClient,
+        ]);
 
-        HttpClientCache::setHttpClient($client->reveal());
-
-        $g = new ComputeCredentials(null, $scope);
-        $g->fetchAuthToken();
+        $compute->fetchAuthToken();
         parse_str($uri->getQuery(), $query);
 
         $this->assertArrayHasKey('scopes', $query);
@@ -217,167 +217,137 @@ class ComputeCredentialsTest extends BaseTest
         ];
     }
 
-    public function testGetLastReceivedTokenIsNullByDefault()
-    {
-        $creds = new ComputeCredentials;
-        $this->assertNull($creds->getLastReceivedToken());
-    }
-
     public function testGetClientName()
     {
         $expected = 'foobar';
 
-        $httpHandler = getHandler([
-            buildResponse(200, [ComputeCredentials::FLAVOR_HEADER => 'Google']),
-            buildResponse(200, [], Psr7\stream_for($expected)),
-            buildResponse(200, [], Psr7\stream_for('notexpected'))
+        $httpClient = httpClientWithResponses([
+            new Response(200, [], $expected),
+            new Response(200, [], 'notexpected')
         ]);
 
-        $creds = new ComputeCredentials;
-        $this->assertEquals($expected, $creds->getClientEmail($httpHandler));
+        $compute = new ComputeCredentials(['httpClient' => $httpClient]);
+        $this->assertEquals($expected, $compute->getClientEmail($httpClient));
 
         // call again to test cached value
-        $this->assertEquals($expected, $creds->getClientEmail($httpHandler));
+        $this->assertEquals($expected, $compute->getClientEmail($httpClient));
     }
 
-    public function testGetClientNameShouldBeEmptyIfNotOnGCE()
+    public function testGetClientNameShouldThrowExceptionIfNotOnCompute()
     {
-        // simulate retry attempts by returning multiple 500s
-        $httpHandler = getHandler([
-            buildResponse(500),
-            buildResponse(500),
-            buildResponse(500)
-        ]);
+        $this->expectException('GuzzleHttp\Exception\ServerException');
 
-        $creds = new ComputeCredentials;
-        $this->assertEquals('', $creds->getClientEmail($httpHandler));
+        // simulate retry attempts by returning multiple 500s
+        $httpClient = httpClientWithResponses([new Response(500)]);
+
+        $compute = new ComputeCredentials(['httpClient' => $httpClient]);
+        $this->assertEquals('', $compute->getClientEmail());
     }
 
     public function testSignBlob()
     {
-        $this->onlyGuzzle6And7();
-
         $expectedEmail = 'test@test.com';
         $expectedAccessToken = 'token';
-        $stringToSign = 'inputString';
-        $resultString = 'foobar';
+        $expectedSignature = 'foobar';
         $token = [
             'access_token' => $expectedAccessToken,
             'expires_in' => '57',
             'token_type' => 'Bearer',
         ];
 
-        $iam = $this->prophesize('Google\Auth\Iam');
-        $iam->signBlob($expectedEmail, $expectedAccessToken, $stringToSign)
-            ->shouldBeCalled()
-            ->willReturn($resultString);
+        $httpClient = httpClientWithResponses([
+            new Response(200, [], json_encode($token)),
+            new Response(200, [], $expectedEmail),
+            new Response(200, [], json_encode(['signedBlob' => $expectedSignature]))
+        ]);
 
-        $client = $this->prophesize('GuzzleHttp\ClientInterface');
-        $client->send(Argument::any(), Argument::any())
-            ->willReturn(
-                buildResponse(200, [ComputeCredentials::FLAVOR_HEADER => 'Google']),
-                buildResponse(200, [], Psr7\stream_for($expectedEmail)),
-                buildResponse(200, [], Psr7\stream_for(json_encode($token)))
-            );
-
-        HttpClientCache::setHttpClient($client->reveal());
-
-        $creds = new ComputeCredentials($iam->reveal());
-        $signature = $creds->signBlob($stringToSign);
+        $compute = new ComputeCredentials([
+            'httpClient' => $httpClient,
+        ]);
+        $signature = $compute->signBlob('string-to-sign');
+        $this->assertEquals($expectedSignature, $signature);
     }
 
-    public function testSignBlobWithLastReceivedAccessToken()
+    public function testSignBlobFromCache()
     {
-        $this->onlyGuzzle6And7();
-
         $expectedEmail = 'test@test.com';
         $expectedAccessToken = 'token';
         $notExpectedAccessToken = 'othertoken';
-        $stringToSign = 'inputString';
-        $resultString = 'foobar';
+        $expectedSignature = 'foobar';
         $token1 = [
             'access_token' => $expectedAccessToken,
             'expires_in' => '57',
             'token_type' => 'Bearer',
         ];
-        $token2 = [
-            'access_token' => $notExpectedAccessToken,
-            'expires_in' => '57',
-            'token_type' => 'Bearer',
-        ];
 
-        $iam = $this->prophesize('Google\Auth\Iam');
-        $iam->signBlob($expectedEmail, $expectedAccessToken, $stringToSign)
-            ->shouldBeCalled()
-            ->willReturn($resultString);
+        $httpClient = httpClientWithResponses([
+            new Response(200, [], json_encode($token1)),
+            new Response(200, [], $expectedEmail),
+            new Response(200, [], json_encode(['signedBlob' => $expectedSignature]))
+        ]);
 
-        $client = $this->prophesize('GuzzleHttp\ClientInterface');
-        $client->send(Argument::any(), Argument::any())
-            ->willReturn(
-                buildResponse(200, [ComputeCredentials::FLAVOR_HEADER => 'Google']),
-                buildResponse(200, [], Psr7\stream_for(json_encode($token1))),
-                buildResponse(200, [], Psr7\stream_for($expectedEmail)),
-                buildResponse(200, [], Psr7\stream_for(json_encode($token2)))
-            );
-
-        HttpClientCache::setHttpClient($client->reveal());
-
-        $creds = new ComputeCredentials($iam->reveal());
+        $compute = new ComputeCredentials([
+            'httpClient' => $httpClient,
+        ]);
         // cache a token
-        $creds->fetchAuthToken();
+        $compute->fetchAuthToken();
 
-        $signature = $creds->signBlob($stringToSign);
+        $signature = $compute->signBlob('string-to-sign');
+        $this->assertEquals($expectedSignature, $signature);
     }
 
     public function testGetProjectId()
     {
-        $this->onlyGuzzle6And7();
-
         $expected = 'foobar';
 
-        $client = $this->prophesize('GuzzleHttp\ClientInterface');
-        $client->send(Argument::any(), Argument::any())
-            ->willReturn(
-                buildResponse(200, [ComputeCredentials::FLAVOR_HEADER => 'Google']),
-                buildResponse(200, [], Psr7\stream_for($expected)),
-                buildResponse(200, [], Psr7\stream_for('notexpected'))
-            );
+        $httpClient = httpClientWithResponses([
+            new Response(200, [], $expected),
+            new Response(200, [], 'notexpected')
+        ]);
 
-        HttpClientCache::setHttpClient($client->reveal());
-
-        $creds = new ComputeCredentials;
-        $this->assertEquals($expected, $creds->getProjectId());
+        $compute = new ComputeCredentials([
+            'httpClient' => $httpClient,
+        ]);
+        $this->assertEquals($expected, $compute->getProjectId());
 
         // call again to test cached value
-        $this->assertEquals($expected, $creds->getProjectId());
+        $this->assertEquals($expected, $compute->getProjectId());
     }
 
-    public function testGetProjectIdShouldBeEmptyIfNotOnGCE()
+    public function testGetProjectIdThrowsExceptionIfNotOnCompute()
     {
-        $this->onlyGuzzle6And7();
+        $this->expectException('GuzzleHttp\Exception\ServerException');
 
         // simulate retry attempts by returning multiple 500s
-        $client = $this->prophesize('GuzzleHttp\ClientInterface');
-        $client->send(Argument::any(), Argument::any())
-            ->willReturn(
-                buildResponse(500),
-                buildResponse(500),
-                buildResponse(500)
-            );
+        $httpClient = httpClientWithResponses([new Response(500)]);
 
-        HttpClientCache::setHttpClient($client->reveal());
-
-        $creds = new ComputeCredentials;
-        $this->assertNull($creds->getProjectId());
+        $compute = new ComputeCredentials([
+            'httpClient' => $httpClient,
+        ]);
+        $this->assertNull($compute->getProjectId());
     }
 
     public function testGetTokenUriWithServiceAccountIdentity()
     {
-        $tokenUri = GCECredentials::getTokenUri('foo');
-        $this->assertEquals(
-            'http://169.254.169.254/computeMetadata/v1/instance/service-accounts/foo/token',
-            $tokenUri
+        $expectedToken = [
+            'access_token' => '123',
+            'expires_in' => 1000,
+        ];
+        $httpClient = httpClientFromCallable(
+            function ($request) use ($expectedToken) {
+                $this->assertEquals(
+                    '/computeMetadata/v1/instance/service-accounts/foo/token',
+                    $request->getUri()->getPath()
+                );
+                return new Response(200, [], json_encode($expectedToken));
+            }
         );
+        $compute = new ComputeCredentials([
+            'serviceAccountIdentity' => 'foo',
+            'httpClient' => $httpClient,
+        ]);
+        $token = $compute->fetchAuthToken();
+        $this->assertEquals($expectedToken['access_token'], $token['access_token']);
     }
 
     public function testGetAccessTokenWithServiceAccountIdentity()
@@ -386,80 +356,64 @@ class ComputeCredentialsTest extends BaseTest
             'access_token' => 'token12345',
             'expires_in' => 123,
         ];
-        $timesCalled = 0;
-        $httpHandler = function ($request) use (&$timesCalled, $expected) {
-            $timesCalled++;
-            if ($timesCalled == 1) {
-                return new Psr7\Response(200, [GCECredentials::FLAVOR_HEADER => 'Google']);
-            }
+        $httpClient = httpClientFromCallable(function ($request) use ($expected) {
             $this->assertEquals(
                 '/computeMetadata/v1/instance/service-accounts/foo/token',
                 $request->getUri()->getPath()
             );
             $this->assertEquals('', $request->getUri()->getQuery());
-            return new Psr7\Response(200, [], Psr7\stream_for(json_encode($expected)));
-        };
+            return new Response(200, [], json_encode($expected));
+        });
 
-        $g = new GCECredentials(null, null, null, null, 'foo');
+        $compute = new ComputeCredentials([
+            'serviceAccountIdentity' => 'foo',
+            'httpClient' => $httpClient,
+        ]);
         $this->assertEquals(
             $expected['access_token'],
-            $g->fetchAuthToken($httpHandler)['access_token']
+            $compute->fetchAuthToken()['access_token']
         );
     }
 
     public function testGetIdTokenWithServiceAccountIdentity()
     {
         $expected = 'idtoken12345';
-        $timesCalled = 0;
-        $httpHandler = function ($request) use (&$timesCalled, $expected) {
-            $timesCalled++;
-            if ($timesCalled == 1) {
-                return new Psr7\Response(200, [GCECredentials::FLAVOR_HEADER => 'Google']);
-            }
+        $httpClient = httpClientFromCallable(function ($request) use ($expected) {
             $this->assertEquals(
                 '/computeMetadata/v1/instance/service-accounts/foo/identity',
                 $request->getUri()->getPath()
             );
             $this->assertEquals(
-                'audience=a+target+audience',
+                'audience=a-target-audience',
                 $request->getUri()->getQuery()
             );
-            return new Psr7\Response(200, [], Psr7\stream_for($expected));
-        };
-        $g = new GCECredentials(null, null, 'a+target+audience', null, 'foo');
+            return new Response(200, [], $expected);
+        });
+        $compute = new ComputeCredentials([
+            'httpClient' => $httpClient,
+            'targetAudience' => 'a-target-audience',
+            'serviceAccountIdentity' => 'foo',
+        ]);
         $this->assertEquals(
             ['id_token' => $expected],
-            $g->fetchAuthToken($httpHandler)
+            $compute->fetchAuthToken()
         );
     }
 
-    public function testGetClientNameUriWithServiceAccountIdentity()
+    public function testGetClientEmailWithServiceAccountIdentity()
     {
-        $clientNameUri = GCECredentials::getClientNameUri('foo');
-        $this->assertEquals(
-            'http://169.254.169.254/computeMetadata/v1/instance/service-accounts/foo/email',
-            $clientNameUri
-        );
-    }
-
-    public function testGetClientNameWithServiceAccountIdentity()
-    {
-        $expected = 'expected';
-        $timesCalled = 0;
-        $httpHandler = function ($request) use (&$timesCalled, $expected) {
-            $timesCalled++;
-            if ($timesCalled == 1) {
-                return new Psr7\Response(200, [GCECredentials::FLAVOR_HEADER => 'Google']);
-            }
+        $expected = 'clientemail';
+        $httpClient = httpClientFromCallable(function ($request) use ($expected) {
             $this->assertEquals(
                 '/computeMetadata/v1/instance/service-accounts/foo/email',
                 $request->getUri()->getPath()
             );
-            $this->assertEquals('', $request->getUri()->getQuery());
-            return new Psr7\Response(200, [], Psr7\stream_for($expected));
-        };
-
-        $creds = new GCECredentials(null, null, null, null, 'foo');
-        $this->assertEquals($expected, $creds->getClientName($httpHandler));
+            return new Response(200, [], $expected);
+        });
+        $compute = new ComputeCredentials([
+            'httpClient' => $httpClient,
+            'serviceAccountIdentity' => 'foo',
+        ]);
+        $this->assertEquals($expected, $compute->getClientEmail());
     }
 }

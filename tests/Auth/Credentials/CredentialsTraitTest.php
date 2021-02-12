@@ -23,13 +23,11 @@ use Prophecy\Argument;
 
 class CredentialsTraitTest extends TestCase
 {
-    private $mockFetcher;
     private $mockCacheItem;
     private $mockCache;
 
     public function setUp(): void
     {
-        $this->mockFetcher = $this->prophesize('Google\Auth\FetchAuthTokenInterface');
         $this->mockCacheItem = $this->prophesize('Psr\Cache\CacheItemInterface');
         $this->mockCache = $this->prophesize('Psr\Cache\CacheItemPoolInterface');
     }
@@ -115,12 +113,17 @@ class CredentialsTraitTest extends TestCase
 
     public function testFailsPullFromCacheWithoutKey()
     {
+        $this->mockCache->getItem(Argument::any())
+            ->shouldNotBeCalled();
+
         $implementation = new CredentialsTraitImplementation([
             'cache' => $this->mockCache->reveal(),
             'key'   => null,
         ]);
 
         $cachedValue = $implementation->gCachedValue();
+
+        $this->assertNull($cachedValue);
     }
 
     public function testSuccessfullySetsToCache()
@@ -154,6 +157,9 @@ class CredentialsTraitTest extends TestCase
 
     public function testFailsSetToCacheWithoutKey()
     {
+        $this->mockCache->getItem(Argument::any())
+            ->shouldNotBeCalled();
+
         $implementation = new CredentialsTraitImplementation([
             'cache' => $this->mockCache,
             'key'   => null,

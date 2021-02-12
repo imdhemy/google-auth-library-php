@@ -21,13 +21,80 @@ use Google\Auth\OAuth2;
 use GuzzleHttp\Psr7;
 use PHPUnit\Framework\TestCase;
 
-class OAuth2AuthorizationUriTest extends TestCase
+class OAuth2Test extends TestCase
 {
+    private $publicKey;
+    private $privateKey;
+    private $cache;
+    private $payload;
+    private const TEST_TOKEN = 'foobar';
+    private const TEST_PUBLIC_KEY = 'barfoo';
+    private $publicKey;
+    private $allowedAlgs;
+
+    private $justClientId = [
+        'clientID' => 'aClientID',
+    ];
+
     private $minimal = [
         'authorizationUri' => 'https://accounts.test.org/insecure/url',
         'redirectUri' => 'https://accounts.test.org/redirect/url',
         'clientId' => 'aClientID',
     ];
+
+    private $verifyIdTokenMinimal = [
+        'scope' => 'https://www.googleapis.com/auth/userinfo.profile',
+        'audience' => 'myaccount.on.host.issuer.com',
+        'issuer' => 'an.issuer.com',
+        'clientId' => 'myaccount.on.host.issuer.com',
+    ];
+
+    private $fetchAuthTokenMinimal = [
+        'tokenCredentialUri' => 'https://tokens_r_us/test',
+        'scope' => 'https://www.googleapis.com/auth/userinfo.profile',
+        'signingKey' => 'example_key',
+        'signingAlgorithm' => 'HS256',
+        'issuer' => 'app@example.com',
+        'audience' => 'accounts.google.com',
+        'clientId' => 'aClientID',
+    ];
+
+    private $tokenRequestMinimal = [
+        'tokenCredentialUri' => 'https://tokens_r_us/test',
+        'scope' => 'https://www.googleapis.com/auth/userinfo.profile',
+        'issuer' => 'app@example.com',
+        'audience' => 'accounts.google.com',
+        'clientId' => 'aClientID',
+    ];
+
+    private $signingMinimal = [
+        'signingKey' => 'example_key',
+        'signingAlgorithm' => 'HS256',
+        'scope' => 'https://www.googleapis.com/auth/userinfo.profile',
+        'issuer' => 'app@example.com',
+        'audience' => 'accounts.google.com',
+        'clientId' => 'aClientID',
+    ];
+
+    public function setUp(): void
+    {
+        $this->cache = $this->prophesize('Psr\Cache\CacheItemPoolInterface');
+        $this->jwt = $this->prophesize('Firebase\JWT\JWT');
+        $this->token = ;
+        $this->publicKey = 'barfoo';
+
+        $this->payload = [
+            'iat' => time(),
+            'exp' => time() + 30,
+            'name' => 'foo',
+            'iss' => GoogleAuth::OIDC_ISSUERS[1]
+        ];
+
+        $this->publicKey =
+            file_get_contents(__DIR__ . '/fixtures' . '/public.pem');
+        $this->privateKey =
+            file_get_contents(__DIR__ . '/fixtures' . '/private.pem');
+    }
 
     public function testIsNullIfAuthorizationUriIsNull()
     {
@@ -147,15 +214,6 @@ class OAuth2AuthorizationUriTest extends TestCase
         $this->assertArrayHasKey('redirect_uri', $query);
         $this->assertEquals('postmessage', $query['redirect_uri']);
     }
-}
-
-class OAuth2GrantTypeTest extends TestCase
-{
-    private $minimal = [
-        'authorizationUri' => 'https://accounts.test.org/insecure/url',
-        'redirectUri' => 'https://accounts.test.org/redirect/url',
-        'clientId' => 'aClientID',
-    ];
 
     public function testReturnsNullIfCannotBeInferred()
     {
@@ -211,30 +269,23 @@ class OAuth2GrantTypeTest extends TestCase
         $o->setGrantType('http://a/grant/url');
         $this->assertEquals('http://a/grant/url', $o->getGrantType());
     }
-}
-
-class OAuth2GetCacheKeyTest extends TestCase
-{
-    private $minimal = [
-        'clientID' => 'aClientID',
-    ];
 
     public function testIsNullWithNoScopesOrAudience()
     {
-        $o = new OAuth2($this->minimal);
+        $o = new OAuth2($this->justClientId);
         $this->assertNull($o->getCacheKey());
     }
 
     public function testIsScopeIfSingleScope()
     {
-        $o = new OAuth2($this->minimal);
+        $o = new OAuth2($this->justClientId);
         $o->setScope('test/scope/1');
         $this->assertEquals('test/scope/1', $o->getCacheKey());
     }
 
     public function testIsAllScopesWhenScopeIsArray()
     {
-        $o = new OAuth2($this->minimal);
+        $o = new OAuth2($this->justClientId);
         $o->setScope(['test/scope/1', 'test/scope/2']);
         $this->assertEquals('test/scope/1:test/scope/2', $o->getCacheKey());
     }
@@ -242,19 +293,10 @@ class OAuth2GetCacheKeyTest extends TestCase
     public function testIsAudienceWhenScopeIsNull()
     {
         $aud = 'https://drive.googleapis.com';
-        $o = new OAuth2($this->minimal);
+        $o = new OAuth2($this->justClientId);
         $o->setAudience($aud);
         $this->assertEquals($aud, $o->getCacheKey());
     }
-}
-
-class OAuth2TimingTest extends TestCase
-{
-    private $minimal = [
-        'authorizationUri' => 'https://accounts.test.org/insecure/url',
-        'redirectUri' => 'https://accounts.test.org/redirect/url',
-        'clientId' => 'aClientID',
-    ];
 
     public function testIssuedAtDefaultsToNull()
     {
@@ -306,15 +348,6 @@ class OAuth2TimingTest extends TestCase
         $o->setExpiresAt(time() - 2);
         $this->assertTrue($o->isExpired());
     }
-}
-
-class OAuth2GeneralTest extends TestCase
-{
-    private $minimal = [
-        'authorizationUri' => 'https://accounts.test.org/insecure/url',
-        'redirectUri' => 'https://accounts.test.org/redirect/url',
-        'clientId' => 'aClientID',
-    ];
 
     public function testFailsOnUnknownSigningAlgorithm()
     {
@@ -346,18 +379,6 @@ class OAuth2GeneralTest extends TestCase
         $o->setRedirectUri($urn);
         $this->assertEquals($urn, $o->getRedirectUri());
     }
-}
-
-class OAuth2JwtTest extends TestCase
-{
-    private $signingMinimal = [
-        'signingKey' => 'example_key',
-        'signingAlgorithm' => 'HS256',
-        'scope' => 'https://www.googleapis.com/auth/userinfo.profile',
-        'issuer' => 'app@example.com',
-        'audience' => 'accounts.google.com',
-        'clientId' => 'aClientID',
-    ];
 
     public function testFailsWithMissingAudience()
     {
@@ -486,28 +507,6 @@ class OAuth2JwtTest extends TestCase
         $roundTrip = $this->jwtDecode($payload, $publicKey, array('RS256'));
         $this->assertEquals($roundTrip->target_audience, $targetAud);
     }
-
-    private function jwtDecode()
-    {
-        $args = func_get_args();
-        $class = 'JWT';
-        if (class_exists('Firebase\JWT\JWT')) {
-            $class = 'Firebase\JWT\JWT';
-        }
-
-        return call_user_func_array("$class::decode", $args);
-    }
-}
-
-class OAuth2GenerateAccessTokenRequestTest extends TestCase
-{
-    private $tokenRequestMinimal = [
-        'tokenCredentialUri' => 'https://tokens_r_us/test',
-        'scope' => 'https://www.googleapis.com/auth/userinfo.profile',
-        'issuer' => 'app@example.com',
-        'audience' => 'accounts.google.com',
-        'clientId' => 'aClientID',
-    ];
 
     public function testFailsIfNoTokenCredentialUri()
     {
@@ -641,19 +640,6 @@ class OAuth2GenerateAccessTokenRequestTest extends TestCase
         $this->assertEquals('my_value', $fields['my_param']);
         $this->assertEquals('urn:my_test_grant_type', $fields['grant_type']);
     }
-}
-
-class OAuth2FetchAuthTokenTest extends TestCase
-{
-    private $fetchAuthTokenMinimal = [
-        'tokenCredentialUri' => 'https://tokens_r_us/test',
-        'scope' => 'https://www.googleapis.com/auth/userinfo.profile',
-        'signingKey' => 'example_key',
-        'signingAlgorithm' => 'HS256',
-        'issuer' => 'app@example.com',
-        'audience' => 'accounts.google.com',
-        'clientId' => 'aClientID',
-    ];
 
     public function testFailsOn400()
     {
@@ -781,98 +767,6 @@ class OAuth2FetchAuthTokenTest extends TestCase
         $this->assertEquals('a_refresh_token', $o->getRefreshToken());
     }
 
-    /**
-     * @dataProvider provideGetLastReceivedToken
-     */
-    public function testGetLastReceivedToken(
-        $updateToken,
-        $expectedToken = null
-    ) {
-        $testConfig = $this->fetchAuthTokenMinimal;
-        $o = new OAuth2($testConfig);
-        $o->updateToken($updateToken);
-        $this->assertEquals(
-            $expectedToken ?: $updateToken,
-            $o->getLastReceivedToken()
-        );
-    }
-
-    public function provideGetLastReceivedToken()
-    {
-        $time = time();
-        return [
-            [
-                ['access_token' => 'abc'],
-                ['access_token' => 'abc', 'expires_at' => null],
-            ],
-            [
-                ['access_token' => 'abc', 'invalid-field' => 'foo'],
-                ['access_token' => 'abc', 'expires_at' => null],
-            ],
-            [
-                ['access_token' => 'abc', 'expires_at' => 1234567890],
-                ['access_token' => 'abc', 'expires_at' => 1234567890],
-            ],
-            [
-                ['id_token' => 'def'],
-                ['id_token' => 'def', 'expires_at' => null],
-            ],
-            [
-                ['id_token' => 'def', 'expires_at' => 1234567890],
-                ['id_token' => 'def', 'expires_at' => 1234567890],
-            ],
-            [
-                [
-                    'access_token' => 'abc',
-                    'expires_in' => 3600,
-                    'issued_at' => $time
-                ],
-                [
-                    'access_token' => 'abc',
-                    'expires_at' => $time + 3600,
-                    'expires_in' => 3600,
-                    'issued_at' => $time
-                ],
-            ],
-            [
-                ['access_token' => 'abc', 'issued_at' => 1234567890],
-                [
-                    'access_token' => 'abc',
-                    'expires_at' => null,
-                    'issued_at' => 1234567890
-                ],
-            ],
-            [
-                ['access_token' => 'abc', 'refresh_token' => 'xyz'],
-                [
-                    'access_token' => 'abc',
-                    'expires_at' => null,
-                    'refresh_token' => 'xyz'
-                ],
-            ],
-        ];
-    }
-}
-
-class OAuth2VerifyIdTokenTest extends TestCase
-{
-    private $publicKey;
-    private $privateKey;
-    private $verifyIdTokenMinimal = [
-        'scope' => 'https://www.googleapis.com/auth/userinfo.profile',
-        'audience' => 'myaccount.on.host.issuer.com',
-        'issuer' => 'an.issuer.com',
-        'clientId' => 'myaccount.on.host.issuer.com',
-    ];
-
-    public function setUp(): void
-    {
-        $this->publicKey =
-            file_get_contents(__DIR__ . '/fixtures' . '/public.pem');
-        $this->privateKey =
-            file_get_contents(__DIR__ . '/fixtures' . '/private.pem');
-    }
-
     public function testFailsIfIdTokenIsInvalid()
     {
         $this->expectException('UnexpectedValueException');
@@ -932,45 +826,6 @@ class OAuth2VerifyIdTokenTest extends TestCase
         $o->setIdToken($jwtIdToken);
         $roundTrip = $o->verifyIdToken($this->publicKey, array($alg));
         $this->assertEquals($origIdToken['aud'], $roundTrip->aud);
-    }
-
-    private function jwtEncode()
-    {
-        $args = func_get_args();
-        $class = 'JWT';
-        if (class_exists('Firebase\JWT\JWT')) {
-            $class = 'Firebase\JWT\JWT';
-        }
-
-        return call_user_func_array("$class::encode", $args);
-    }
-}
-
-/**
- * @group access-token
- */
-class OAuth2IdTokenVerifyTest extends TestCase
-{
-    private $cache;
-    private $payload;
-
-    private $token;
-    private $publicKey;
-    private $allowedAlgs;
-
-    public function setUp(): void
-    {
-        $this->cache = $this->prophesize('Psr\Cache\CacheItemPoolInterface');
-        $this->jwt = $this->prophesize('Firebase\JWT\JWT');
-        $this->token = 'foobar';
-        $this->publicKey = 'barfoo';
-
-        $this->payload = [
-            'iat' => time(),
-            'exp' => time() + 30,
-            'name' => 'foo',
-            'iss' => GoogleAuth::OIDC_ISSUERS[1]
-        ];
     }
 
     /**

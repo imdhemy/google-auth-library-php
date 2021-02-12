@@ -87,11 +87,6 @@ class ServiceAccountCredentials implements
      */
     private $projectId;
 
-    /*
-     * @var array|null
-     */
-    private $lastReceivedJwtAccessToken;
-
     /**
      * Create a new ServiceAccountCredentials.
      *
@@ -209,11 +204,6 @@ class ServiceAccountCredentials implements
         $jwtCreds = new ServiceAccountJwtAccessCredentials($credJson);
 
         $updatedMetadata = $jwtCreds->getRequestMetadata($httpHandler);
-
-        if ($lastReceivedToken = $jwtCreds->getLastReceivedToken()) {
-            // Keep self-signed JWTs in memory as the last received token
-            $this->lastReceivedJwtAccessToken = $lastReceivedToken;
-        }
 
         return $updatedMetadata;
     }
