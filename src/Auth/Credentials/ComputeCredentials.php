@@ -20,7 +20,6 @@ declare(strict_types=1);
 namespace Google\Auth\Credentials;
 
 use Google\Auth\GetQuotaProjectInterface;
-use Google\Auth\Http\ClientFactory;
 use Google\Auth\HttpHandler\HttpClientCache;
 use Google\Auth\HttpHandler\HttpHandlerFactory;
 use Google\Auth\ProjectIdProviderInterface;
@@ -157,8 +156,8 @@ class ComputeCredentials implements
         }
 
         $this->setCacheFromOptions($options);
+        $this->setHttpClientFromOptions($options);
 
-        $this->httpClient = $options['httpClient'] ?: ClientFactory::build();
         $this->quotaProject = $options['quotaProject'];
         $this->serviceAccountIdentity = $options['serviceAccountIdentity'];
         $this->scope = is_string($options['scope'])

@@ -26,6 +26,7 @@ interface CredentialsInterface
 {
     const X_GOOG_USER_PROJECT_HEADER = 'X-Goog-User-Project';
     const TOKEN_CREDENTIAL_URI = 'https://oauth2.googleapis.com/token';
+    const TOKEN_REVOKE_URI = 'https://oauth2.googleapis.com/revoke';
 
     /**
      * Fetches the auth tokens based on the current state.

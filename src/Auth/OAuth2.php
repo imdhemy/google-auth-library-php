@@ -530,7 +530,7 @@ class OAuth2
      *
      * @return string a key that may be used to cache the auth token.
      */
-    public function getCacheKey()
+    public function getCacheKey(): ?string
     {
         if (is_array($this->scope)) {
             return implode(':', $this->scope);

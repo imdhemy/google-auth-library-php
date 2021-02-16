@@ -20,261 +20,174 @@ namespace Google\Auth\Tests\Credentials;
 use Google\Auth\ApplicationDefaultCredentials;
 use Google\Auth\Credentials\UserRefreshCredentials;
 use Google\Auth\OAuth2;
-use GuzzleHttp\Psr7;
+use GuzzleHttp\Exception\ClientException;
+use GuzzleHttp\Exception\ServerException;
+use GuzzleHttp\Psr7\Response;
 use PHPUnit\Framework\TestCase;
+use InvalidArgumentException;
+use LogicException;
 
-// Creates a standard JSON auth object for testing.
-function createURCTestJson()
+class UserRefreshCredentialsTest extends TestCase
 {
-    return [
+    private $testJson = [
         'client_id' => 'client123',
         'client_secret' => 'clientSecret123',
         'refresh_token' => 'refreshToken123',
         'type' => 'authorized_user',
     ];
-}
 
-class URCGetCacheKeyTest extends TestCase
-{
-    public function testShouldBeTheSameAsOAuth2WithTheSameScope()
+    public function testCacheKeyShouldBeTheSameAsOAuth2WithTheSameScope()
     {
-        $testJson = createURCTestJson();
         $scope = ['scope/1', 'scope/2'];
-        $sa = new UserRefreshCredentials(
-            $scope,
-            $testJson
-        );
+        $credentials = new UserRefreshCredentials($this->testJson, [
+            'scope' => $scope,
+        ]);
+
+        $reflection = new \ReflectionClass($credentials);
+        $method = $reflection->getMethod('getCacheKey');
+        $method->setAccessible(true);
+        $cacheKey = $method->invoke($credentials);
+
         $o = new OAuth2(['scope' => $scope]);
         $this->assertSame(
-            $testJson['client_id'] . ':' . $o->getCacheKey(),
-            $sa->getCacheKey()
+            $this->testJson['client_id'] . ':' . $o->getCacheKey(),
+            $cacheKey
         );
     }
-}
 
-class URCConstructorTest extends TestCase
-{
-    /**
-     * @expectedException InvalidArgumentException
-     */
     public function testShouldFailIfScopeIsNotAValidType()
     {
-        $testJson = createURCTestJson();
+        $this->expectException(InvalidArgumentException::class);
+
         $notAnArrayOrString = new \stdClass();
-        $sa = new UserRefreshCredentials(
-            $notAnArrayOrString,
-            $testJson
-        );
+        $credentials = new UserRefreshCredentials($this->testJson, [
+            'scope' => $notAnArrayOrString
+        ]);
     }
 
-    /**
-     * @expectedException InvalidArgumentException
-     */
     public function testShouldFailIfJsonDoesNotHaveClientSecret()
     {
-        $testJson = createURCTestJson();
-        unset($testJson['client_secret']);
+        $this->expectException(InvalidArgumentException::class);
+
+        unset($this->testJson['client_secret']);
         $scope = ['scope/1', 'scope/2'];
-        $sa = new UserRefreshCredentials(
-            $scope,
-            $testJson
-        );
+        $credentials = new UserRefreshCredentials($this->testJson, [
+            'scope' => $scope,
+        ]);
     }
 
-    /**
-     * @expectedException InvalidArgumentException
-     */
     public function testShouldFailIfJsonDoesNotHaveRefreshToken()
     {
-        $testJson = createURCTestJson();
-        unset($testJson['refresh_token']);
+        $this->expectException(InvalidArgumentException::class);
+
+        unset($this->testJson['refresh_token']);
         $scope = ['scope/1', 'scope/2'];
-        $sa = new UserRefreshCredentials(
-            $scope,
-            $testJson
-        );
+        $credentials = new UserRefreshCredentials($this->testJson, [
+            'scope' => $scope,
+        ]);
     }
 
-    /**
-     * @expectedException InvalidArgumentException
-     */
     public function testShouldFailIfJsonDoesNotHaveClientId()
     {
-        $testJson = createURCTestJson();
-        unset($testJson['client_id']);
+        $this->expectException(InvalidArgumentException::class);
+
+        unset($this->testJson['client_id']);
         $scope = ['scope/1', 'scope/2'];
-        $sa = new UserRefreshCredentials(
-            $scope,
-            $testJson
-        );
+        $credentials = new UserRefreshCredentials($this->testJson, [
+            'scope' => $scope,
+        ]);
     }
 
-    /**
-     * @expectedException InvalidArgumentException
-     */
     public function testFailsToInitalizeFromANonExistentFile()
     {
+        $this->expectException(InvalidArgumentException::class);
         $keyFile = __DIR__ . '/../fixtures/does-not-exist-private.json';
-        new UserRefreshCredentials('scope/1', $keyFile);
+        new UserRefreshCredentials($keyFile, [
+            'scope' => 'scope/1',
+        ]);
     }
 
     public function testInitalizeFromAFile()
     {
-        $keyFile = __DIR__ . '/../fixtures2' . '/private.json';
-        $this->assertNotNull(
-            new UserRefreshCredentials('scope/1', $keyFile)
-        );
+        $keyFile = __DIR__ . '/../fixtures/client_credentials.json';
+        $credentials = new UserRefreshCredentials($keyFile, [
+            'scope' => 'scope/1',
+        ]);
+        $this->assertNotNull($credentials);
     }
 
-    /**
-     * @expectedException LogicException
-     */
     public function testFailsToInitializeFromInvalidJsonData()
     {
+        $this->expectException(LogicException::class);
+
         $tmp = tmpfile();
         fwrite($tmp, '{');
 
         $path = stream_get_meta_data($tmp)['uri'];
 
         try {
-            new UserRefreshCredentials('scope/1', $path);
-        } catch (\Exception $e) {
+            new UserRefreshCredentials($path, [
+                'scope' => 'scope/1',
+            ]);
+        } finally {
             fclose($tmp);
-            throw $e;
         }
     }
 
-    public function testValid3LOauthCreds()
-    {
-        $keyFile = __DIR__ . '/../fixtures2/valid_oauth_creds.json';
-        $this->assertNotNull(
-            new UserRefreshCredentials('scope/1', $keyFile)
-        );
-    }
-}
-
-class URCFromEnvTest extends TestCase
-{
-    protected function tearDown(): void
-    {
-        putenv(UserRefreshCredentials::ENV_VAR);  // removes it from
-    }
-
-    public function testIsNullIfEnvVarIsNotSet()
-    {
-        $this->assertNull(UserRefreshCredentials::fromEnv('a scope'));
-    }
-
-    /**
-     * @expectedException DomainException
-     */
-    public function testFailsIfEnvSpecifiesNonExistentFile()
-    {
-        $keyFile = __DIR__ . '/../fixtures/does-not-exist-private.json';
-        putenv(UserRefreshCredentials::ENV_VAR . '=' . $keyFile);
-        UserRefreshCredentials::fromEnv('a scope');
-    }
-
-    public function testSucceedIfFileExists()
-    {
-        $keyFile = __DIR__ . '/../fixtures2/private.json';
-        putenv(UserRefreshCredentials::ENV_VAR . '=' . $keyFile);
-        $this->assertNotNull(ApplicationDefaultCredentials::getCredentials('a scope'));
-    }
-}
-
-class URCFromWellKnownFileTest extends TestCase
-{
-    private $originalHome;
-
-    protected function setUp(): void
-    {
-        $this->originalHome = getenv('HOME');
-    }
-
-    protected function tearDown(): void
-    {
-        if ($this->originalHome != getenv('HOME')) {
-            putenv('HOME=' . $this->originalHome);
-        }
-    }
-
-    public function testIsNullIfFileDoesNotExist()
-    {
-        putenv('HOME=' . __DIR__ . '/../not_exist_fixtures');
-        $this->assertNull(
-            UserRefreshCredentials::fromWellKnownFile('a scope')
-        );
-    }
-
-    public function testSucceedIfFileIsPresent()
-    {
-        putenv('HOME=' . __DIR__ . '/../fixtures2');
-        $this->assertNotNull(
-            ApplicationDefaultCredentials::getCredentials('a scope')
-        );
-    }
-}
-
-class URCFetchAuthTokenTest extends TestCase
-{
-    /**
-     * @expectedException GuzzleHttp\Exception\ClientException
-     */
     public function testFailsOnClientErrors()
     {
-        $testJson = createURCTestJson();
+        $this->expectException(ClientException::class);
+
         $scope = ['scope/1', 'scope/2'];
-        $httpHandler = getHandler([
-            buildResponse(400),
+        $httpClient = httpClientWithResponses([
+            new Response(400),
         ]);
-        $sa = new UserRefreshCredentials(
-            $scope,
-            $testJson
-        );
-        $sa->fetchAuthToken($httpHandler);
+        $credentials = new UserRefreshCredentials($this->testJson, [
+            'scope' => $scope,
+            'httpClient' => $httpClient,
+        ]);
+        $credentials->fetchAuthToken();
     }
 
-    /**
-     * @expectedException GuzzleHttp\Exception\ServerException
-     */
     public function testFailsOnServerErrors()
     {
-        $testJson = createURCTestJson();
+        $this->expectException(ServerException::class);
+
         $scope = ['scope/1', 'scope/2'];
-        $httpHandler = getHandler([
-            buildResponse(500),
+        $httpClient = httpClientWithResponses([
+            new Response(500),
         ]);
-        $sa = new UserRefreshCredentials(
-            $scope,
-            $testJson
-        );
-        $sa->fetchAuthToken($httpHandler);
+        $credentials = new UserRefreshCredentials($this->testJson, [
+            'scope' => $scope,
+            'httpClient' => $httpClient,
+        ]);
+        $credentials->fetchAuthToken();
     }
 
     public function testCanFetchCredsOK()
     {
-        $testJson = createURCTestJson();
-        $testJsonText = json_encode($testJson);
+        $jsonText = json_encode($this->testJson);
         $scope = ['scope/1', 'scope/2'];
-        $httpHandler = getHandler([
-            buildResponse(200, [], Psr7\stream_for($testJsonText)),
+        $httpClient = httpClientWithResponses([
+            new Response(200, [], $jsonText),
         ]);
-        $sa = new UserRefreshCredentials(
-            $scope,
-            $testJson
-        );
-        $tokens = $sa->fetchAuthToken($httpHandler);
-        $this->assertEquals($testJson, $tokens);
+        $credentials = new UserRefreshCredentials($this->testJson, [
+            'scope' => $scope,
+            'httpClient' => $httpClient,
+        ]);
+        $tokens = $credentials->fetchAuthToken($httpClient);
+        $this->assertEquals($this->testJson, $tokens);
     }
-}
 
-class URCGetQuotaProjectTest extends TestCase
-{
     public function testGetQuotaProject()
     {
-        $keyFile = __DIR__ . '/../fixtures2' . '/private.json';
-        $sa = new UserRefreshCredentials('a-scope', $keyFile);
-        $this->assertEquals('test_quota_project', $sa->getQuotaProject());
+        $keyFile = __DIR__ . '/../fixtures/client_credentials.json';
+        $credentials = new UserRefreshCredentials($keyFile, [
+            'scope' => 'a-scope'
+        ]);
+        $this->assertEquals(
+            'test_quota_project',
+            $credentials->getQuotaProject()
+        );
     }
 }

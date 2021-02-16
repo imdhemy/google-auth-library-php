@@ -95,8 +95,9 @@ class ServiceAccountCredentials implements
      * @param array $options {
      *      @type string|array $scope the scope of the access request, expressed
      *          as an array or as a space-delimited string.
-     *      @type string $sub an email address account to impersonate, in situations
-     *          when the service account has been delegated domain wide access.
+     *      @type string $subject an email address account to impersonate, in
+     *          situations when the service account has been delegated domain
+     *          wide access.
      *      @type string $targetAudience The audience for the ID token.
      * }
      */
@@ -106,6 +107,7 @@ class ServiceAccountCredentials implements
             'scope' => null,
             'targetAudience' => null,
             'subject' => null,
+            'audience' => self::TOKEN_CREDENTIAL_URI,
         ];
 
         if (is_string($jsonKey)) {
@@ -142,8 +144,10 @@ class ServiceAccountCredentials implements
             ];
         }
         $this->setHttpClientFromOptions($options);
+        $this->setCacheFromOptions($options);
+
         $this->oauth2 = new OAuth2([
-            'audience' => self::TOKEN_CREDENTIAL_URI,
+            'audience' => $options['audience'],
             'tokenCredentialUri' => self::TOKEN_CREDENTIAL_URI,
             'signingAlgorithm' => 'RS256',
             'signingKey' => $jsonKey['private_key'],
@@ -160,14 +164,22 @@ class ServiceAccountCredentials implements
     }
 
     /**
-     * @return array A set of auth related metadata, with the following keys:
+     * @return array Auth related metadata, with the following keys:
      *     - access_token (string)
      *     - expires_in (int)
      *     - token_type (string)
      */
     public function fetchAuthToken(): array
     {
-        return $this->oauth2->fetchAuthToken();
+        if ($cachedToken = $this->getCachedValue($this->getCacheKey())) {
+            return $cachedToken;
+        }
+
+        $token = $this->oauth2->fetchAuthToken();
+
+        $this->setCachedValue($this->getCacheKey(), $token);
+
+        return $token;
     }
 
     /**
@@ -185,15 +197,18 @@ class ServiceAccountCredentials implements
     /**
      * Returns request metadata with the authorization token.
      *
-     * @param callable $httpHandler callback which delivers psr7 request
      * @return array metadata hashmap for request headers
      */
-    public function getRequestMetadata(
-        ClientInterface $httpHandler = null
-    ): array {
+    public function getRequestMetadata(): array
+    {
         // scope exists. use oauth implementation
         if (!$this->useSelfSignedJwt()) {
-            return $this->traitGetRequestMetadata($httpHandler);
+            return $this->traitGetRequestMetadata();
+        }
+
+        // no-op when audience is null
+        if (is_null($this->oauth2->getAudience())) {
+            return [];
         }
 
         // no scope found. create jwt with the auth uri
@@ -201,20 +216,14 @@ class ServiceAccountCredentials implements
             'private_key' => $this->oauth2->getSigningKey(),
             'client_email' => $this->oauth2->getIssuer(),
         );
-        $jwtCreds = new ServiceAccountJwtAccessCredentials($credJson);
 
-        $updatedMetadata = $jwtCreds->getRequestMetadata($httpHandler);
+        $jwtCreds = new ServiceAccountJwtAccessCredentials(
+            $credJson,
+            $this->oauth2->getAudience(),
+            ['httpClient' => $this->httpClient]
+        );
 
-        return $updatedMetadata;
-    }
-
-    /**
-     * @param string $sub an email address account to impersonate, in situations when
-     *   the service account has been delegated domain wide access.
-     */
-    public function setSub($sub)
-    {
-        $this->oauth2->setSub($sub);
+        return $jwtCreds->getRequestMetadata();
     }
 
     /**
@@ -255,6 +264,15 @@ class ServiceAccountCredentials implements
         return $this->oauth2->getIssuer();
     }
 
+    private function getCacheKey(): string
+    {
+        $key = $this->oauth2->getIssuer() . ':' . $this->oauth2->getCacheKey();
+        if ($sub = $this->oauth2->getSub()) {
+            $key .= ':' . $sub;
+        }
+
+        return $key;
+    }
 
     private function useSelfSignedJwt()
     {

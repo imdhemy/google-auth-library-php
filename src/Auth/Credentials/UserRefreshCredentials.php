@@ -55,10 +55,22 @@ class UserRefreshCredentials implements CredentialsInterface
      * @param string|array $scope the scope of the access request, expressed
      *   either as an Array or as a space-delimited String.
      */
-    public function __construct(
-        array $jsonKey,
-        array $options = []
-    ) {
+    public function __construct($jsonKey, array $options = [])
+    {
+        $options += [
+            'scope' => null,
+        ];
+
+        if (is_string($jsonKey)) {
+            if (!file_exists($jsonKey)) {
+                throw new \InvalidArgumentException('file does not exist');
+            }
+            $jsonKeyStream = file_get_contents($jsonKey);
+            if (!$jsonKey = json_decode($jsonKeyStream, true)) {
+                throw new \LogicException('invalid json for auth config');
+            }
+        }
+
         if (!array_key_exists('client_id', $jsonKey)) {
             throw new \InvalidArgumentException(
                 'json key is missing the client_id field'
@@ -74,7 +86,10 @@ class UserRefreshCredentials implements CredentialsInterface
                 'json key is missing the refresh_token field'
             );
         }
+
         $this->setHttpClientFromOptions($options);
+        $this->setCacheFromOptions($options);
+
         $this->oauth2 = new OAuth2([
             'clientId' => $jsonKey['client_id'],
             'clientSecret' => $jsonKey['client_secret'],
@@ -122,5 +137,13 @@ class UserRefreshCredentials implements CredentialsInterface
         throw new \RuntimeException(
             'getProjectId is not implemented for user refresh credentials'
         );
+    }
+
+    /**
+     * @return string
+     */
+    private function getCacheKey(): string
+    {
+        return $this->oauth2->getClientId() . ':' . $this->oauth2->getCacheKey();
     }
 }

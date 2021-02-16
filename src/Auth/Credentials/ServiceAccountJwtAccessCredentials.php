@@ -56,14 +56,12 @@ class ServiceAccountJwtAccessCredentials implements
     /**
      * Create a new ServiceAccountJwtAccessCredentials.
      *
+     * @param string $audience the audience for the JWT
      * @param string|array $jsonKey JSON credential file path or JSON credentials
      *   as an associative array
      */
-    public function __construct($jsonKey, array $options = [])
+    public function __construct($jsonKey, string $audience, array $options = [])
     {
-        if (!isset($options['audience'])) {
-            throw new \RuntimeException('"audience" is a required parameter');
-        }
         if (is_string($jsonKey)) {
             if (!file_exists($jsonKey)) {
                 throw new \InvalidArgumentException('file does not exist');
@@ -86,19 +84,21 @@ class ServiceAccountJwtAccessCredentials implements
         if (array_key_exists('quota_project_id', $jsonKey)) {
             $this->quotaProject = (string) $jsonKey['quota_project_id'];
         }
+
+        $this->setHttpClientFromOptions($options);
+
         $this->oauth2 = new OAuth2([
             'issuer' => $jsonKey['client_email'],
             'sub' => $jsonKey['client_email'],
             'signingAlgorithm' => 'RS256',
             'signingKey' => $jsonKey['private_key'],
-            'audience' => $options['audience']
+            'audience' => $audience,
+            'httpClient' => $this->httpClient,
         ]);
 
         $this->projectId = isset($jsonKey['project_id'])
             ? $jsonKey['project_id']
             : null;
-
-        $this->setHttpClientFromOptions($options);
     }
 
     /**
@@ -111,9 +111,6 @@ class ServiceAccountJwtAccessCredentials implements
     public function fetchAuthToken(): array
     {
         $access_token = $this->oauth2->toJwt();
-
-        // Set the self-signed access token in OAuth2 for getLastReceivedToken
-        $this->auth->setAccessToken($access_token);
 
         return ['access_token' => $access_token];
     }
@@ -176,5 +173,13 @@ class ServiceAccountJwtAccessCredentials implements
     public function getClientEmail(): string
     {
         return $this->oauth2->getIssuer();
+    }
+
+    /**
+     * @return string
+     */
+    private function getCacheKey()
+    {
+        return $this->oauth2->getCacheKey();
     }
 }

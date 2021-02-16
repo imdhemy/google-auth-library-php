@@ -101,7 +101,6 @@ class GoogleAuth
     public function makeCredentials(array $options = []): CredentialsInterface;
     public function onCompute(array $options = []): bool;
     public function verify(string $token, array $options = []): bool;
-    public function revoke(string $token): bool;
 }
 ```
 
@@ -392,7 +391,7 @@ Consistency with SignBlob traits.
    </td>
    <td><strong>refactored</strong>
 <p>
-into <code>GoogleAuth</code> (constants) and <code>OAuth2 </code>(<code>verify</code> and <code>revoke</code> methods)
+into <code>GoogleAuth</code> (constants and <code>verify</code> method) and <code>OAuth2 </code>(<code>revoke</code> method)
    </td>
   </tr>
   <tr>
@@ -677,6 +676,16 @@ Proper caching should make this unnecessary
    <td><strong>not needed</strong>
 <p>
 The URIs used to call the metadata server is implementation detail, and does not need to be public
+   </td>
+  </tr>
+  <tr>
+   <td><code>ServiceAccountCredentials</code>
+<p>
+<code>:: setSub</code>
+   </td>
+   <td><strong>not needed</strong>
+<p>
+subject can be passed in to the <code>GoogleAuth</code> class
    </td>
   </tr>
   <tr>

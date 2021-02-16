@@ -105,25 +105,12 @@ class CredentialsTraitTest extends TestCase
 
     public function testFailsPullFromCacheWithNoCache()
     {
-        $implementation = new CredentialsTraitImplementation();
-
-        $cachedValue = $implementation->gCachedValue();
-        $this->assertEquals(null, $cachedValue);
-    }
-
-    public function testFailsPullFromCacheWithoutKey()
-    {
-        $this->mockCache->getItem(Argument::any())
-            ->shouldNotBeCalled();
-
+        $this->expectException(\LogicException::class);
+        $this->expectExceptionMessage('Cache has not been initialized');
         $implementation = new CredentialsTraitImplementation([
-            'cache' => $this->mockCache->reveal(),
-            'key'   => null,
+            'cache' => null,
         ]);
-
         $cachedValue = $implementation->gCachedValue();
-
-        $this->assertNull($cachedValue);
     }
 
     public function testSuccessfullySetsToCache()
@@ -136,7 +123,8 @@ class CredentialsTraitTest extends TestCase
         $this->mockCache->getItem('key')
             ->willReturn($this->mockCacheItem->reveal());
         $this->mockCache->save(Argument::type('Psr\Cache\CacheItemInterface'))
-            ->shouldBeCalled();
+            ->shouldBeCalled()
+            ->willReturn(true);
 
         $implementation = new CredentialsTraitImplementation([
             'cache' => $this->mockCache->reveal(),
@@ -157,12 +145,15 @@ class CredentialsTraitTest extends TestCase
 
     public function testFailsSetToCacheWithoutKey()
     {
+        $this->expectException(\LogicException::class);
+        $this->expectExceptionMessage('Cache key cannot be empty');
+
         $this->mockCache->getItem(Argument::any())
             ->shouldNotBeCalled();
 
         $implementation = new CredentialsTraitImplementation([
             'cache' => $this->mockCache,
-            'key'   => null,
+            'key'   => '',
         ]);
 
         $cachedValue = $implementation->sCachedValue('1234');

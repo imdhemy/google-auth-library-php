@@ -37,7 +37,7 @@ class FirebaseJwtClient implements JwtClientInterface
         array $payload,
         string $signingKey,
         string $signingAlg,
-        string $keyId
+        ?string $keyId
     ): string {
         return $this->jwt->encode($payload, $signingKey, $signingAlg, $keyId);
     }

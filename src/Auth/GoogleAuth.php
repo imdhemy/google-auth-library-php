@@ -76,11 +76,10 @@ use UnexpectedValueException;
  */
 class GoogleAuth
 {
-    private const TOKEN_REVOKE_URI = 'https://oauth2.googleapis.com/revoke';
-    private const OIDC_CERT_URI = 'https://www.googleapis.com/oauth2/v3/certs';
-    private const OIDC_ISSUERS = ['http://accounts.google.com', 'https://accounts.google.com'];
-    private const IAP_JWK_URI = 'https://www.gstatic.com/iap/verify/public_key-jwk';
-    private const IAP_ISSUERS = ['https://cloud.google.com/iap'];
+    const OIDC_CERT_URI = 'https://www.googleapis.com/oauth2/v3/certs';
+    const OIDC_ISSUERS = ['http://accounts.google.com', 'https://accounts.google.com'];
+    const IAP_JWK_URI = 'https://www.gstatic.com/iap/verify/public_key-jwk';
+    const IAP_ISSUERS = ['https://cloud.google.com/iap'];
 
     private const ENV_VAR = 'GOOGLE_APPLICATION_CREDENTIALS';
     private const WELL_KNOWN_PATH = 'gcloud/application_default_credentials.json';
@@ -412,22 +411,6 @@ class GoogleAuth
             'Failed to retrieve verification certificates: "%s".',
             $response->getBody()->getContents()
         ), $response->getStatusCode());
-    }
-
-    /**
-     * Revoke an OAuth2 access token or refresh token. This method will revoke the current access
-     * token, if a token isn't provided.
-     *
-     * @param string $token The token (access token or a refresh token) that should be revoked.
-     * @return bool Returns True if the revocation was successful, otherwise False.
-     */
-    public function revoke(string $token): bool
-    {
-        $oauth2 = new OAuth2([
-            'tokenRevokeUri' => self::TOKEN_REVOKE_URI,
-            'httpClient' => $this->httpClient,
-        ]);
-        return $oauth2->revoke($token);
     }
 
     /**

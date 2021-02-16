@@ -17,18 +17,16 @@
 
 namespace Google\Auth\Tests;
 
+use Google\Auth\GoogleAuth;
 use Google\Auth\OAuth2;
 use GuzzleHttp\Psr7;
 use PHPUnit\Framework\TestCase;
 
 class OAuth2Test extends TestCase
 {
-    private $publicKey;
     private $privateKey;
     private $cache;
     private $payload;
-    private const TEST_TOKEN = 'foobar';
-    private const TEST_PUBLIC_KEY = 'barfoo';
     private $publicKey;
     private $allowedAlgs;
 
@@ -78,28 +76,16 @@ class OAuth2Test extends TestCase
 
     public function setUp(): void
     {
-        $this->cache = $this->prophesize('Psr\Cache\CacheItemPoolInterface');
-        $this->jwt = $this->prophesize('Firebase\JWT\JWT');
-        $this->token = ;
-        $this->publicKey = 'barfoo';
-
-        $this->payload = [
-            'iat' => time(),
-            'exp' => time() + 30,
-            'name' => 'foo',
-            'iss' => GoogleAuth::OIDC_ISSUERS[1]
-        ];
-
         $this->publicKey =
-            file_get_contents(__DIR__ . '/fixtures' . '/public.pem');
+            file_get_contents(__DIR__ . '/fixtures/public.pem');
         $this->privateKey =
-            file_get_contents(__DIR__ . '/fixtures' . '/private.pem');
+            file_get_contents(__DIR__ . '/fixtures/private.pem');
     }
 
     public function testIsNullIfAuthorizationUriIsNull()
     {
         $this->expectException('InvalidArgumentException');
-        $o = new OAuth2([]);
+        $o = new OAuth2();
         $this->assertNull($o->buildFullAuthorizationUri());
     }
 
@@ -480,14 +466,12 @@ class OAuth2Test extends TestCase
 
     public function testCanRS256EncodeAValidPayload()
     {
-        $publicKey = file_get_contents(__DIR__ . '/fixtures' . '/public.pem');
-        $privateKey = file_get_contents(__DIR__ . '/fixtures' . '/private.pem');
         $testConfig = $this->signingMinimal;
         $o = new OAuth2($testConfig);
         $o->setSigningAlgorithm('RS256');
-        $o->setSigningKey($privateKey);
+        $o->setSigningKey($this->privateKey);
         $payload = $o->toJwt();
-        $roundTrip = $this->jwtDecode($payload, $publicKey, array('RS256'));
+        $roundTrip = $this->jwtDecode($payload, $this->publicKey, array('RS256'));
         $this->assertEquals($roundTrip->iss, $testConfig['issuer']);
         $this->assertEquals($roundTrip->aud, $testConfig['audience']);
         $this->assertEquals($roundTrip->scope, $testConfig['scope']);
@@ -495,16 +479,14 @@ class OAuth2Test extends TestCase
 
     public function testCanHaveAdditionalClaims()
     {
-        $publicKey = file_get_contents(__DIR__ . '/fixtures' . '/public.pem');
-        $privateKey = file_get_contents(__DIR__ . '/fixtures' . '/private.pem');
         $testConfig = $this->signingMinimal;
         $targetAud = '123@456.com';
         $testConfig['additionalClaims'] = ['target_audience' => $targetAud];
         $o = new OAuth2($testConfig);
         $o->setSigningAlgorithm('RS256');
-        $o->setSigningKey($privateKey);
+        $o->setSigningKey($this->privateKey);
         $payload = $o->toJwt();
-        $roundTrip = $this->jwtDecode($payload, $publicKey, array('RS256'));
+        $roundTrip = $this->jwtDecode($payload, $this->publicKey, array('RS256'));
         $this->assertEquals($roundTrip->target_audience, $targetAud);
     }
 
@@ -829,215 +811,11 @@ class OAuth2Test extends TestCase
     }
 
     /**
-     * @dataProvider verifyCalls
-     */
-    public function testVerify(
-        $payload,
-        $expected,
-        $audience = null,
-        $exception = null,
-        $certsLocation = null,
-        $issuer = null
-    ) {
-        $item = $this->prophesize('Psr\Cache\CacheItemInterface');
-        $item->get()->willReturn([
-            'keys' => [
-                [
-                    'kid' => 'ddddffdfd',
-                    'e' => 'AQAB',
-                    'kty' => 'RSA',
-                    'alg' => $certsLocation ? 'ES256' : 'RS256',
-                    'n' => $this->publicKey,
-                    'use' => 'sig'
-                ]
-            ]
-        ]);
-
-        $cacheKey = 'google_auth_certs_cache|' .
-            ($certsLocation ? sha1($certsLocation) : 'federated_signon_certs_v3');
-        $this->cache->getItem($cacheKey)
-            ->shouldBeCalledTimes(1)
-            ->willReturn($item->reveal());
-
-        $token = new AccessTokenStub(
-            null,
-            $this->cache->reveal()
-        );
-
-        $token->mocks['decode'] = function ($token, $publicKey, $allowedAlgs) use ($payload, $exception) {
-            $this->assertEquals($this->token, $token);
-
-            if ($exception) {
-                throw $exception;
-            }
-
-            return (object) $payload;
-        };
-
-        $e = null;
-        $res = false;
-        try {
-            $res = $token->verify($this->token, [
-                'audience' => $audience,
-                'issuer' => $issuer,
-                'certsLocation' => $certsLocation,
-                'throwException' => (bool) $exception,
-            ]);
-        } catch (\Exception $e) {
-        }
-
-        $this->assertEquals($expected, $res);
-        $this->assertEquals($exception, $e);
-    }
-
-    public function verifyCalls()
-    {
-        $this->setUp();
-
-        if (class_exists('Firebase\JWT\JWT')) {
-            $expiredException = 'Firebase\JWT\ExpiredException';
-            $sigInvalidException = 'Firebase\JWT\SignatureInvalidException';
-        } else {
-            $expiredException = 'ExpiredException';
-            $sigInvalidException = 'SignatureInvalidException';
-        }
-
-        return [
-            [
-                $this->payload,
-                $this->payload,
-            ], [
-                $this->payload + [
-                    'aud' => 'foo'
-                ],
-                $this->payload + [
-                    'aud' => 'foo'
-                ],
-                'foo'
-            ], [
-                $this->payload + [
-                    'aud' => 'foo'
-                ],
-                false,
-                'bar'
-            ], [
-                [
-                    'iss' => 'invalid'
-                ] + $this->payload,
-                false
-            ], [
-                [
-                    'iss' => 'baz'
-                ] + $this->payload,
-                [
-                    'iss' => 'baz'
-                ] + $this->payload,
-                null,
-                null,
-                null,
-                'baz'
-            ], [
-                $this->payload,
-                false,
-                null,
-                new $expiredException('expired!')
-            ], [
-                $this->payload,
-                false,
-                null,
-                new $sigInvalidException('invalid!')
-            ], [
-                $this->payload,
-                false,
-                null,
-                new \DomainException('expired!')
-            ], [
-                [
-                    'iss' => GoogleAuth::IAP_ISSUERS[0]
-                ] + $this->payload, [
-                    'iss' => GoogleAuth::IAP_ISSUERS[0]
-                ] + $this->payload,
-                null,
-                null,
-                GoogleAuth::OIDC_CERT_URI
-            ], [
-                [
-                    'iss' => 'invalid',
-                ] + $this->payload,
-                false,
-                null,
-                null,
-                GoogleAuth::OIDC_CERT_URI
-            ], [
-                [
-                    'iss' => GoogleAuth::IAP_ISSUERS[0],
-                ] + $this->payload + [
-                    'aud' => 'foo'
-                ],
-                false,
-                'bar',
-                null,
-                GoogleAuth::OIDC_CERT_URI
-            ], [
-                [
-                    'iss' => 'baz'
-                ] + $this->payload,
-                false,
-                null,
-                null,
-                GoogleAuth::OIDC_CERT_URI
-            ], [
-                [
-                    'iss' => 'baz'
-                ] + $this->payload, [
-                    'iss' => 'baz'
-                ] + $this->payload,
-                null,
-                null,
-                GoogleAuth::OIDC_CERT_URI,
-                'baz'
-            ]
-        ];
-    }
-
-    public function testEsVerifyEndToEnd()
-    {
-        if (!$jwt = getenv('IAP_IDENTITY_TOKEN')) {
-            $this->markTestSkipped('Set the IAP_IDENTITY_TOKEN env var');
-        }
-
-        $token = new AccessTokenStub();
-        $token->mocks['decode'] = function ($token, $publicKey, $allowedAlgs) {
-            // Skip expired validation
-            $jwt = SimpleJWT::decode(
-                $token,
-                $publicKey,
-                $allowedAlgs,
-                null,
-                ['exp']
-            );
-            return $jwt->getClaims();
-        };
-
-        // Use Iap Cert URL
-        $payload = $token->verify($jwt, [
-            'certsLocation' => GoogleAuth::OIDC_CERT_URI,
-            'throwException' => true,
-            'issuer' => 'https://cloud.google.com/iap',
-        ]);
-
-        $this->assertNotFalse($payload);
-        $this->assertArrayHasKey('iss', $payload);
-        $this->assertEquals('https://cloud.google.com/iap', $payload['iss']);
-    }
-
-
-    /**
      * @dataProvider provideRevoke
      */
     public function testRevoke($input, $expected)
     {
-        $httpClient = createHttpClient(function (RequestInterface $request) use ($expected) {
+        $httpClient = httpClientFromCallable(function (RequestInterface $request) use ($expected) {
             $this->assertEquals('no-store', $request->getHeaderLine('Cache-Control'));
             $this->assertEquals('application/x-www-form-urlencoded', $request->getHeaderLine('Content-Type'));
             $this->assertEquals('POST', $request->getMethod());
@@ -1056,23 +834,24 @@ class OAuth2Test extends TestCase
 
     public function provideRevoke()
     {
+        $testToken = 'testtoken';
         return [
             [
-                self::TEST_TOKEN,
-                self::TEST_TOKEN
+                $testToken,
+                $testToken
             ], [
-                ['refresh_token' => self::TEST_TOKEN, 'access_token' => 'other thing'],
-                self::TEST_TOKEN
+                ['refresh_token' => $testToken, 'access_token' => 'other thing'],
+                $testToken
             ], [
-                ['access_token' => self::TEST_TOKEN],
-                self::TEST_TOKEN
+                ['access_token' => $testToken],
+                $testToken
             ]
         ];
     }
 
     public function testRevokeFails()
     {
-        $httpClient = createHttpClient(function (RequestInterface $request) {
+        $httpClient = httpClientFromCallable(function (RequestInterface $request) {
             return new Response(500);
         });
 
@@ -1080,6 +859,6 @@ class OAuth2Test extends TestCase
             'httpClient' => $httpClient,
         ]);
 
-        $this->assertFalse($oauth->revoke(self::TEST_TOKEN));
+        $this->assertFalse($oauth->revoke('testtoken'));
     }
 }

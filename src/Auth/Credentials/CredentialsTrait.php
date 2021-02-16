@@ -19,6 +19,7 @@ declare(strict_types=1);
 
 namespace Google\Auth\Credentials;
 
+use Google\Auth\Http\ClientFactory;
 use Google\Cache\MemoryCacheItemPool;
 use Google\Http\ClientInterface;
 use Psr\Cache\CacheItemPoolInterface;
@@ -59,7 +60,7 @@ trait CredentialsTrait
      */
     public function getRequestMetadata(): array
     {
-        $result = $this->fetchAuthToken($httpHandler);
+        $result = $this->fetchAuthToken();
         if (isset($result['access_token'])) {
             return ['Authorization' => 'Bearer ' . $result['access_token']];
         }
@@ -68,12 +69,13 @@ trait CredentialsTrait
     }
 
     /**
-     *
+     * @param array           $options
+     * @param ClientInterface $options.httpClient
      */
     private function setHttpClientFromOptions(array $options): void
     {
         if (empty($options['httpClient'])) {
-            throw new \RuntimeException('Missing required option "httpClient"');
+            $options['httpClient'] = ClientFactory::build();
         }
         if (!$options['httpClient'] instanceof ClientInterface) {
             throw new \RuntimeException(sprintf(
@@ -85,7 +87,10 @@ trait CredentialsTrait
     }
 
     /**
-     *
+     * @param array                  $options
+     * @param CacheItemPoolInterface $options.cache
+     * @param int                    $options.cacheLifetime
+     * @param strring                $options.cachePrefix
      */
     private function setCacheFromOptions(array $options): void
     {
@@ -141,6 +146,8 @@ trait CredentialsTrait
         $cacheItem->set($v);
         $cacheItem->expiresAfter($this->cacheLifetime);
         return $this->cache->save($cacheItem);
+
+        // return true;
     }
 
     private function getFullCacheKey(string $key): string

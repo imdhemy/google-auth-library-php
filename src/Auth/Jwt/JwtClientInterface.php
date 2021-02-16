@@ -25,7 +25,7 @@ interface JwtClientInterface
         array $payload,
         string $signingKey,
         string $signingAlg,
-        string $keyId
+        ?string $keyId
     ): string;
 
     public function decode(string $jwt, array $keys, array $allowedAlgs): array;

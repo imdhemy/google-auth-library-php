@@ -17,6 +17,8 @@
 
 namespace Google\Auth\Tests;
 
+use Firebase\JWT\ExpiredException;
+use Firebase\JWT\SignatureInvalidException;
 use Google\Auth\GoogleAuth;
 use Google\Auth\Credentials\ComputeCredentials;
 use Google\Auth\Credentials\ServiceAccountCredentials;
@@ -255,11 +257,11 @@ class GoogleAuthTest extends BaseTest
 
         $this->assertInstanceOf(ComputeCredentials::class, $credentials);
 
-        $uriProperty = (new ReflectionClass($credentials))->getProperty('tokenUri');
-        $uriProperty->setAccessible(true);
+        $uriMethod = (new ReflectionClass($credentials))->getMethod('getTokenUri');
+        $uriMethod->setAccessible(true);
 
         // used default scope
-        $tokenUri = $uriProperty->getValue($credentials);
+        $tokenUri = $uriMethod->invoke($credentials);
         $this->assertStringContainsString('a-default-scope', $tokenUri);
 
         $credentials = $googleAuth->makeCredentials([
@@ -268,7 +270,7 @@ class GoogleAuthTest extends BaseTest
         ]);
 
         // did not use default scope
-        $tokenUri = $uriProperty->getValue($credentials);
+        $tokenUri = $uriMethod->invoke($credentials);
         $this->assertStringContainsString('a-user-scope', $tokenUri);
     }
 
@@ -321,9 +323,9 @@ class GoogleAuthTest extends BaseTest
             'defaultScope' => ['default-scope-one', 'default-scope-two']
         ]);
         $this->assertInstanceOf(ComputeCredentials::class, $credentials);
-        $uriProperty = (new ReflectionClass($credentials))->getProperty('tokenUri');
-        $uriProperty->setAccessible(true);
-        $tokenUri = $uriProperty->getValue($credentials);
+        $uriMethod = (new ReflectionClass($credentials))->getMethod('getTokenUri');
+        $uriMethod->setAccessible(true);
+        $tokenUri = $uriMethod->invoke($credentials);
 
         // used default scope
         $this->assertStringContainsString(
@@ -598,9 +600,9 @@ class GoogleAuthTest extends BaseTest
             'targetAudience' => self::TEST_TARGET_AUDIENCE,
         ]);
         $this->assertInstanceOf(ComputeCredentials::class, $credentials);
-        $uriProperty = (new ReflectionClass($credentials))->getProperty('tokenUri');
-        $uriProperty->setAccessible(true);
-        $tokenUri = $uriProperty->getValue($credentials);
+        $uriMethod = (new ReflectionClass($credentials))->getMethod('getTokenUri');
+        $uriMethod->setAccessible(true);
+        $tokenUri = $uriMethod->invoke($credentials);
         $this->assertStringContainsString('/identity', $tokenUri);
         $this->assertStringContainsString(self::TEST_TARGET_AUDIENCE, $tokenUri);
 
@@ -815,5 +817,190 @@ class GoogleAuthTest extends BaseTest
         ]);
 
         $googleAuth->verify(self::TEST_TOKEN);
+    }
+
+
+    /**
+     * @dataProvider provideVerify
+     */
+    public function testVerify(
+        $payload,
+        $expected,
+        $audience = null,
+        array $expectedException = null,
+        $certsLocation = null,
+        $issuer = null
+    ) {
+        $parsedCertsData = [];
+        $jwt = $this->prophesize(JwtClientInterface::class);
+        $jwt->parseKeySet(Argument::any())
+            ->shouldBeCalledTimes(1)
+            ->willReturn($parsedCertsData);
+        $jwt->decode(self::TEST_TOKEN, $parsedCertsData, ['RS256'])
+            ->shouldBeCalledTimes(1)
+            ->willReturn([
+                'iss' => 'https://accounts.google.com'
+            ]);
+
+        $googleAuth = new GoogleAuth([
+            'jwtClient' => $jwt->reveal(),
+        ]);
+
+        $e = null;
+        $res = false;
+        try {
+            $res = $googleAuth->verify(self::TEST_TOKEN, [
+                'audience' => $audience,
+                'issuer' => $issuer,
+                'certsLocation' => $certsLocation,
+            ]);
+        } catch (\Exception $e) {
+        }
+
+        $this->assertEquals($expected, $res);
+        if (is_null($expectedException)) {
+            $this->assertNull($e);
+        } else {
+            $this->assertNotNull($e);
+            $this->assertEquals(get_class($e), $expectedException[0]);
+            $this->assertEquals($e->getMessage(), $expectedException[1]);
+        }
+    }
+
+    public function provideVerify()
+    {
+        $payload = [
+            'iat' => time(),
+            'exp' => time() + 30,
+            'name' => 'foo',
+            'iss' => GoogleAuth::OIDC_ISSUERS[1]
+        ];
+        return [
+            [
+                $payload,
+                $payload,
+            ], [
+                $payload + [
+                    'aud' => 'foo'
+                ],
+                $payload + [
+                    'aud' => 'foo'
+                ],
+                'foo'
+            ], [
+                $payload + [
+                    'aud' => 'foo'
+                ],
+                false,
+                'bar'
+            ], [
+                [
+                    'iss' => 'invalid'
+                ] + $payload,
+                false
+            ], [
+                [
+                    'iss' => 'baz'
+                ] + $payload,
+                [
+                    'iss' => 'baz'
+                ] + $payload,
+                null,
+                null,
+                null,
+                'baz'
+            ], [
+                $payload,
+                false,
+                null,
+                [ExpiredException::class, 'expired!']
+            ], [
+                $payload,
+                false,
+                null,
+                [SignatureInvalidException::class, 'invalid!']
+            ], [
+                $payload,
+                false,
+                null,
+                [\DomainException::class, 'expired!']
+            ], [
+                [
+                    'iss' => GoogleAuth::IAP_ISSUERS[0]
+                ] + $payload, [
+                    'iss' => GoogleAuth::IAP_ISSUERS[0]
+                ] + $payload,
+                null,
+                null,
+                GoogleAuth::OIDC_CERT_URI
+            ], [
+                [
+                    'iss' => 'invalid',
+                ] + $payload,
+                false,
+                null,
+                null,
+                GoogleAuth::OIDC_CERT_URI
+            ], [
+                [
+                    'iss' => GoogleAuth::IAP_ISSUERS[0],
+                ] + $payload + [
+                    'aud' => 'foo'
+                ],
+                false,
+                'bar',
+                null,
+                GoogleAuth::OIDC_CERT_URI
+            ], [
+                [
+                    'iss' => 'baz'
+                ] + $payload,
+                false,
+                null,
+                null,
+                GoogleAuth::OIDC_CERT_URI
+            ], [
+                [
+                    'iss' => 'baz'
+                ] + $payload, [
+                    'iss' => 'baz'
+                ] + $payload,
+                null,
+                null,
+                GoogleAuth::OIDC_CERT_URI,
+                'baz'
+            ]
+        ];
+    }
+
+    public function testEsVerifyEndToEnd()
+    {
+        if (!$jwt = getenv('IAP_IDENTITY_TOKEN')) {
+            $this->markTestSkipped('Set the IAP_IDENTITY_TOKEN env var');
+        }
+
+        $token = new AccessTokenStub();
+        $token->mocks['decode'] = function ($token, $publicKey, $allowedAlgs) {
+            // Skip expired validation
+            $jwt = SimpleJWT::decode(
+                $token,
+                $publicKey,
+                $allowedAlgs,
+                null,
+                ['exp']
+            );
+            return $jwt->getClaims();
+        };
+
+        // Use Iap Cert URL
+        $payload = $token->verify($jwt, [
+            'certsLocation' => GoogleAuth::OIDC_CERT_URI,
+            'throwException' => true,
+            'issuer' => 'https://cloud.google.com/iap',
+        ]);
+
+        $this->assertNotFalse($payload);
+        $this->assertArrayHasKey('iss', $payload);
+        $this->assertEquals('https://cloud.google.com/iap', $payload['iss']);
     }
 }
